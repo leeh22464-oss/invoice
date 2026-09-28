@@ -1,0 +1,18 @@
+spring:
+  application:
+    name: invoice
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/invoice}
+    username: ${SPRING_DATASOURCE_USERNAME:invoice}
+    password: ${POSTGRES_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
