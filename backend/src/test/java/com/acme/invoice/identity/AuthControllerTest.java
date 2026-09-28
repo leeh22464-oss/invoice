@@ -173,6 +173,40 @@ class AuthControllerTest {
     }
 
     @Test
+    void unauthenticatedLogoutWithValidCsrfExpiresAccessToken() throws Exception {
+        mvc.perform(post("/api/auth/logout")
+                        .with(csrf()))
+                .andExpect(status().isNoContent())
+                .andExpect(cookie().value("access_token", ""))
+                .andExpect(cookie().maxAge("access_token", 0))
+                .andExpect(cookie().httpOnly("access_token", true))
+                .andExpect(cookie().secure("access_token", false))
+                .andExpect(cookie().path("access_token", "/"))
+                .andExpect(header().string("Set-Cookie", containsString("SameSite=Lax")));
+    }
+
+    @Test
+    void logoutWithMalformedAccessTokenAndValidCsrfExpiresAccessToken() throws Exception {
+        mvc.perform(post("/api/auth/logout")
+                        .with(csrf())
+                        .cookie(new Cookie("access_token", "not-a-jwt")))
+                .andExpect(status().isNoContent())
+                .andExpect(cookie().value("access_token", ""))
+                .andExpect(cookie().maxAge("access_token", 0))
+                .andExpect(cookie().httpOnly("access_token", true))
+                .andExpect(cookie().secure("access_token", false))
+                .andExpect(cookie().path("access_token", "/"))
+                .andExpect(header().string("Set-Cookie", containsString("SameSite=Lax")));
+    }
+
+    @Test
+    void unauthenticatedLogoutWithoutCsrfIsRejected() throws Exception {
+        mvc.perform(post("/api/auth/logout"))
+                .andExpect(status().isForbidden())
+                .andExpect(cookie().doesNotExist("access_token"));
+    }
+
+    @Test
     void meReturnsAuthenticatedNormalizedUser() throws Exception {
         Cookie token = register("me@example.com", "StrongPass1!");
 
