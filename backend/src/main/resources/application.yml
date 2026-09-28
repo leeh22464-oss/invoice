@@ -16,3 +16,9 @@ management:
     web:
       exposure:
         include: health,info
+
+app:
+  jwt:
+    secret: ${APP_JWT_SECRET:}
+    ttl: ${APP_JWT_TTL:PT1H}
+    secure-cookie: ${APP_COOKIE_SECURE:true}
