@@ -10,6 +10,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Base64;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -30,6 +31,8 @@ class UserIsolationTest {
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         registry.add("app.jwt.secret", () -> "0123456789abcdef0123456789abcdef");
+        registry.add("app.credential.master-key",
+                () -> Base64.getEncoder().encodeToString(new byte[32]));
     }
 
     @Autowired

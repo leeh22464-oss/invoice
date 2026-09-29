@@ -13,6 +13,8 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 
+import java.util.Base64;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.containsString;
@@ -42,6 +44,8 @@ class AuthControllerTest {
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         registry.add("app.jwt.secret", () -> "0123456789abcdef0123456789abcdef");
         registry.add("app.jwt.secure-cookie", () -> "false");
+        registry.add("app.credential.master-key",
+                () -> Base64.getEncoder().encodeToString(new byte[32]));
     }
 
     @Autowired

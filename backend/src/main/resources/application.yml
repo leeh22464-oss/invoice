@@ -22,3 +22,8 @@ app:
     secret: ${APP_JWT_SECRET:}
     ttl: ${APP_JWT_TTL:PT1H}
     secure-cookie: ${APP_COOKIE_SECURE:true}
+  credential:
+    master-key: ${APP_CREDENTIAL_MASTER_KEY:}
+  paddle:
+    token-url: ${APP_PADDLE_TOKEN_URL:https://aip.baidubce.com/oauth/2.0/token}
+    timeout-ms: 10000
