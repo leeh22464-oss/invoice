@@ -1,5 +1,7 @@
 package com.acme.invoice.ingestion;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
@@ -19,22 +21,27 @@ import java.util.UUID;
 @Profile("!smoke")
 public class ImportService {
 
+    private static final Logger log = LoggerFactory.getLogger(ImportService.class);
+
     static final int DELETE_ATTEMPTS = 3;
 
     private final UploadPolicy policy;
     private final FileStorage storage;
     private final ImportBatchRepository batchRepository;
     private final InvoiceFileRepository fileRepository;
+    private final PendingCleanupRegistry pendingCleanup;
 
     public ImportService(
             UploadPolicy policy,
             FileStorage storage,
             ImportBatchRepository batchRepository,
-            InvoiceFileRepository fileRepository) {
+            InvoiceFileRepository fileRepository,
+            PendingCleanupRegistry pendingCleanup) {
         this.policy = policy;
         this.storage = storage;
         this.batchRepository = batchRepository;
         this.fileRepository = fileRepository;
+        this.pendingCleanup = pendingCleanup;
     }
 
     @Transactional
@@ -88,17 +95,32 @@ public class ImportService {
             batchRepository.flush();
             return ImportBatchView.from(batch);
         } catch (RuntimeException exception) {
-            cleanup(userId, written);
-            if (!written.isEmpty()) {
-                UploadException cleanupFailure = new UploadException(
-                        "STORAGE_CLEANUP_FAILED",
-                        "Stored files could not be removed after upload failure",
-                        HttpStatus.INTERNAL_SERVER_ERROR);
+            try {
+                cleanup(userId, written);
+            } catch (UploadException cleanupFailure) {
                 cleanupFailure.addSuppressed(exception);
                 throw cleanupFailure;
             }
             throw exception;
         }
+    }
+
+    public int retryPendingCleanups() {
+        int removed = 0;
+        for (PendingCleanupRegistry.Entry entry : pendingCleanup.snapshot()) {
+            try {
+                storage.delete(entry.userId(), entry.storageKey());
+                pendingCleanup.remove(entry.userId(), entry.storageKey());
+                removed++;
+            } catch (RuntimeException exception) {
+                log.error(
+                        "Retry cleanup failed userId={} storageKey={}",
+                        entry.userId(),
+                        entry.storageKey(),
+                        exception);
+            }
+        }
+        return removed;
     }
 
     @Transactional(readOnly = true)
@@ -127,12 +149,13 @@ public class ImportService {
                     @Override
                     public void afterCompletion(int status) {
                         if (status != STATUS_COMMITTED) {
-                            cleanup(userId, written);
-                            if (!written.isEmpty()) {
-                                throw new UploadException(
-                                        "STORAGE_CLEANUP_FAILED",
-                                        "Stored files could not be removed after upload failure",
-                                        HttpStatus.INTERNAL_SERVER_ERROR);
+                            try {
+                                cleanup(userId, written);
+                            } catch (UploadException cleanupFailure) {
+                                log.error(
+                                        "Rollback cleanup left pending entries userId={}",
+                                        userId,
+                                        cleanupFailure);
                             }
                         }
                     }
@@ -140,26 +163,52 @@ public class ImportService {
     }
 
     private void cleanup(UUID userId, List<StoredReference> written) {
+        UploadException aggregate = null;
         Iterator<StoredReference> iterator = written.iterator();
         while (iterator.hasNext()) {
             StoredReference reference = iterator.next();
-            if (deleteWithRetry(userId, reference.storageKey())) {
+            try {
+                deleteWithRetry(userId, reference.storageKey());
                 iterator.remove();
+            } catch (UploadException failure) {
+                if (aggregate == null) {
+                    aggregate = failure;
+                } else {
+                    aggregate.addSuppressed(failure);
+                }
             }
+        }
+        if (aggregate != null) {
+            throw aggregate;
         }
     }
 
-    private boolean deleteWithRetry(UUID userId, String storageKey) {
+    private void deleteWithRetry(UUID userId, String storageKey) {
         RuntimeException lastFailure = null;
         for (int attempt = 0; attempt < DELETE_ATTEMPTS; attempt++) {
             try {
                 storage.delete(userId, storageKey);
-                return true;
+                pendingCleanup.remove(userId, storageKey);
+                return;
             } catch (RuntimeException exception) {
                 lastFailure = exception;
             }
         }
-        return lastFailure == null;
+        pendingCleanup.register(userId, storageKey);
+        UploadException failure = new UploadException(
+                "STORAGE_CLEANUP_FAILED",
+                "Stored files could not be removed after upload failure: userId="
+                        + userId
+                        + ", storageKey="
+                        + storageKey,
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                lastFailure);
+        log.error(
+                "Persistent storage cleanup failure userId={} storageKey={}",
+                userId,
+                storageKey,
+                lastFailure);
+        throw failure;
     }
 
     private UploadException notFound() {

@@ -68,10 +68,13 @@ class ImportControllerTest {
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
     @Autowired FailingStorage storage;
+    @Autowired PendingCleanupRegistry pendingCleanup;
+    @Autowired ImportService importService;
 
     @BeforeEach
     void clean() throws Exception {
         storage.reset();
+        pendingCleanup.clear();
         jdbc.update("delete from invoice_files");
         jdbc.update("delete from import_batches");
         jdbc.update("delete from users");
@@ -222,6 +225,46 @@ class ImportControllerTest {
     }
 
     @Test
+    void keepsFailedCleanupDiagnosableAndRetriableViaRegistry() throws Exception {
+        Cookie token = register("cleanup-registry@example.com");
+        UUID userId = jdbc.queryForObject(
+                "select id from users where email = ?", UUID.class, "cleanup-registry@example.com");
+        storage.failOn(2);
+        storage.failDeletesAlways();
+
+        Exception failure = mvc.perform(multipart("/api/import-batches")
+                        .file(png("first.png"))
+                        .file(png("second.png"))
+                        .with(csrf()).cookie(token))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("STORAGE_CLEANUP_FAILED"))
+                .andReturn()
+                .getResolvedException();
+
+        assertThat(failure).isInstanceOf(UploadException.class);
+        UploadException cleanupFailure = (UploadException) failure;
+        assertThat(cleanupFailure.getCause()).isNotNull();
+        assertThat(cleanupFailure.getMessage()).contains(userId.toString());
+        assertThat(cleanupFailure.getMessage()).containsPattern(
+                "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
+        assertThat(pendingCleanup.size()).isGreaterThanOrEqualTo(1);
+        String storageKey = pendingCleanup.snapshot().iterator().next().storageKey();
+        assertThat(cleanupFailure.getMessage()).contains(storageKey);
+        assertThat(pendingCleanup.contains(userId, storageKey)).isTrue();
+        assertThat(rowCount("import_batches")).isZero();
+        assertThat(rowCount("invoice_files")).isZero();
+
+        storage.allowDeletes();
+        assertThat(importService.retryPendingCleanups()).isGreaterThanOrEqualTo(1);
+        assertThat(pendingCleanup.size()).isZero();
+        assertThat(rowCount("import_batches")).isZero();
+        assertThat(rowCount("invoice_files")).isZero();
+        try (var paths = Files.walk(STORAGE_ROOT)) {
+            assertThat(paths.filter(Files::isRegularFile)).isEmpty();
+        }
+    }
+
+    @Test
     void requiresAuthenticationAndCsrf() throws Exception {
         Cookie token = register("security-upload@example.com");
         mvc.perform(multipart("/api/import-batches").file(png("a.png")).with(csrf()))
@@ -290,6 +333,11 @@ class ImportControllerTest {
         void failDeletesAlways() {
             failDeletesAlways = true;
             remainingDeleteFailures = Integer.MAX_VALUE;
+        }
+
+        void allowDeletes() {
+            failDeletesAlways = false;
+            remainingDeleteFailures = 0;
         }
 
         int calls() {

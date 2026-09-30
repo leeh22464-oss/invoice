@@ -7,9 +7,11 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -17,6 +19,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 public final class TimedPdfPageChecker implements PdfPageChecker, AutoCloseable {
 
     static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(5);
+    static final int WORKER_THREADS = 2;
+    /** At most 2; zero-capacity queue rejects the 3rd check while both workers are busy. */
+    static final int QUEUE_CAPACITY = 0;
 
     private final PdfPageChecker delegate;
     private final Duration timeout;
@@ -43,12 +48,29 @@ public final class TimedPdfPageChecker implements PdfPageChecker, AutoCloseable 
             thread.setDaemon(true);
             return thread;
         };
-        this.executor = Executors.newFixedThreadPool(2, factory);
+        // Fixed 2 workers + zero-capacity queue (≤2) with AbortPolicy: no unbounded backlog.
+        this.executor = new ThreadPoolExecutor(
+                WORKER_THREADS,
+                WORKER_THREADS,
+                0L,
+                TimeUnit.MILLISECONDS,
+                new SynchronousQueue<>(),
+                factory,
+                new ThreadPoolExecutor.AbortPolicy());
     }
 
     @Override
     public void validatePageLimit(Path pdfFile) {
-        Future<?> future = executor.submit(() -> delegate.validatePageLimit(pdfFile));
+        Future<?> future;
+        try {
+            future = executor.submit(() -> delegate.validatePageLimit(pdfFile));
+        } catch (RejectedExecutionException exception) {
+            throw new UploadException(
+                    "PDF_VALIDATION_UNAVAILABLE",
+                    "PDF validation service is unavailable",
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    exception);
+        }
         try {
             future.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
         } catch (TimeoutException exception) {
