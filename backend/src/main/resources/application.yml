@@ -15,6 +15,10 @@ spring:
       max-file-size: 20MB
       max-request-size: 2048MB
 
+server:
+  tomcat:
+    max-part-count: 110
+
 management:
   endpoints:
     web:

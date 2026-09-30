@@ -11,12 +11,15 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.UUID;
 
 @Service
 @Profile("!smoke")
 public class ImportService {
+
+    static final int DELETE_ATTEMPTS = 3;
 
     private final UploadPolicy policy;
     private final FileStorage storage;
@@ -86,6 +89,14 @@ public class ImportService {
             return ImportBatchView.from(batch);
         } catch (RuntimeException exception) {
             cleanup(userId, written);
+            if (!written.isEmpty()) {
+                UploadException cleanupFailure = new UploadException(
+                        "STORAGE_CLEANUP_FAILED",
+                        "Stored files could not be removed after upload failure",
+                        HttpStatus.INTERNAL_SERVER_ERROR);
+                cleanupFailure.addSuppressed(exception);
+                throw cleanupFailure;
+            }
             throw exception;
         }
     }
@@ -117,20 +128,38 @@ public class ImportService {
                     public void afterCompletion(int status) {
                         if (status != STATUS_COMMITTED) {
                             cleanup(userId, written);
+                            if (!written.isEmpty()) {
+                                throw new UploadException(
+                                        "STORAGE_CLEANUP_FAILED",
+                                        "Stored files could not be removed after upload failure",
+                                        HttpStatus.INTERNAL_SERVER_ERROR);
+                            }
                         }
                     }
                 });
     }
 
     private void cleanup(UUID userId, List<StoredReference> written) {
-        for (StoredReference reference : written) {
-            try {
-                storage.delete(userId, reference.storageKey());
-            } catch (RuntimeException ignored) {
-                // Keep the original request failure and continue best-effort cleanup.
+        Iterator<StoredReference> iterator = written.iterator();
+        while (iterator.hasNext()) {
+            StoredReference reference = iterator.next();
+            if (deleteWithRetry(userId, reference.storageKey())) {
+                iterator.remove();
             }
         }
-        written.clear();
+    }
+
+    private boolean deleteWithRetry(UUID userId, String storageKey) {
+        RuntimeException lastFailure = null;
+        for (int attempt = 0; attempt < DELETE_ATTEMPTS; attempt++) {
+            try {
+                storage.delete(userId, storageKey);
+                return true;
+            } catch (RuntimeException exception) {
+                lastFailure = exception;
+            }
+        }
+        return lastFailure == null;
     }
 
     private UploadException notFound() {

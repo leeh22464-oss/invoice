@@ -1,7 +1,5 @@
 package com.acme.invoice.ingestion;
 
-import org.apache.pdfbox.Loader;
-import org.apache.pdfbox.pdmodel.PDDocument;
 import org.springframework.http.HttpStatus;
 
 import java.io.BufferedInputStream;
@@ -9,8 +7,8 @@ import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.file.Files;
 import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -23,15 +21,33 @@ public class LocalFileStorage implements FileStorage {
 
     private static final int BUFFER_SIZE = 8192;
 
+    @FunctionalInterface
+    interface PathDeleter {
+        void deleteIfExists(Path path) throws IOException;
+    }
+
     private final Path root;
     private final UploadPolicy policy;
+    private final PdfPageChecker pdfPageChecker;
+    private final PathDeleter pathDeleter;
 
-    public LocalFileStorage(String configuredRoot, UploadPolicy policy) {
+    public LocalFileStorage(
+            String configuredRoot, UploadPolicy policy, PdfPageChecker pdfPageChecker) {
+        this(configuredRoot, policy, pdfPageChecker, Files::deleteIfExists);
+    }
+
+    LocalFileStorage(
+            String configuredRoot,
+            UploadPolicy policy,
+            PdfPageChecker pdfPageChecker,
+            PathDeleter pathDeleter) {
         if (configuredRoot == null || configuredRoot.isBlank()) {
             throw new IllegalStateException("APP_STORAGE_ROOT must be configured");
         }
         this.root = Path.of(configuredRoot).toAbsolutePath().normalize();
         this.policy = policy;
+        this.pdfPageChecker = pdfPageChecker;
+        this.pathDeleter = pathDeleter;
         try {
             Files.createDirectories(root);
             if (!Files.isDirectory(root)) {
@@ -86,14 +102,7 @@ public class LocalFileStorage implements FileStorage {
                     originalName, expectedType,
                     java.util.Arrays.copyOf(prefix, prefixLength));
             if ("application/pdf".equals(actualType)) {
-                try {
-                    try (PDDocument document = Loader.loadPDF(temporary.toFile())) {
-                        policy.validatePdfPages(document);
-                    }
-                } catch (IOException exception) {
-                    throw new UploadException(
-                            "INVALID_PDF", "PDF content is invalid");
-                }
+                pdfPageChecker.validatePageLimit(temporary);
             }
             try {
                 Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE);
@@ -106,15 +115,16 @@ public class LocalFileStorage implements FileStorage {
                     HexFormat.of().formatHex(digest.digest()),
                     actualType);
         } catch (UploadException exception) {
-            cleanup(temporary);
+            cleanupTemporary(temporary, exception);
             throw exception;
         } catch (IOException | NoSuchAlgorithmException exception) {
-            cleanup(temporary);
-            throw new UploadException(
+            UploadException failure = new UploadException(
                     "STORAGE_FAILED",
                     "File could not be stored",
                     HttpStatus.INTERNAL_SERVER_ERROR,
                     exception);
+            cleanupTemporary(temporary, failure);
+            throw failure;
         }
     }
 
@@ -139,12 +149,12 @@ public class LocalFileStorage implements FileStorage {
     public void delete(UUID userId, String storageKey) {
         Path path = storedPath(userId, storageKey);
         try {
-            Files.deleteIfExists(path);
+            pathDeleter.deleteIfExists(path);
             Path userDirectory = path.getParent();
             if (Files.isDirectory(userDirectory)) {
                 try (var entries = Files.list(userDirectory)) {
                     if (entries.findAny().isEmpty()) {
-                        Files.deleteIfExists(userDirectory);
+                        pathDeleter.deleteIfExists(userDirectory);
                     }
                 }
             }
@@ -200,13 +210,17 @@ public class LocalFileStorage implements FileStorage {
         }
     }
 
-    private void cleanup(Path... paths) {
-        for (Path path : paths) {
-            try {
-                Files.deleteIfExists(path);
-            } catch (IOException ignored) {
-                // Preserve the original failure; request-level cleanup retries stored files.
-            }
+    private void cleanupTemporary(Path temporary, UploadException primary) {
+        try {
+            pathDeleter.deleteIfExists(temporary);
+        } catch (IOException exception) {
+            UploadException cleanupFailure = new UploadException(
+                    "STORAGE_CLEANUP_FAILED",
+                    "Temporary upload file could not be removed",
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    exception);
+            cleanupFailure.addSuppressed(primary);
+            throw cleanupFailure;
         }
     }
 }

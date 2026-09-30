@@ -13,14 +13,20 @@ import java.util.UUID;
 @Profile("!smoke")
 class FileStorageConfiguration {
 
+    @Bean(destroyMethod = "close")
+    TimedPdfPageChecker pdfPageChecker(UploadPolicy policy) {
+        return new TimedPdfPageChecker(new PdfBoxPageChecker(policy));
+    }
+
     @Bean
     FileStorage fileStorage(
             @Value("${app.storage.root:}") String configuredRoot,
-            UploadPolicy policy) {
+            UploadPolicy policy,
+            PdfPageChecker pdfPageChecker) {
         if (configuredRoot == null || configuredRoot.isBlank()) {
             return new UnavailableFileStorage();
         }
-        return new LocalFileStorage(configuredRoot, policy);
+        return new LocalFileStorage(configuredRoot, policy, pdfPageChecker);
     }
 
     private static final class UnavailableFileStorage implements FileStorage {

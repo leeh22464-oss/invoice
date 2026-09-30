@@ -182,6 +182,46 @@ class ImportControllerTest {
     }
 
     @Test
+    void retriesTransientDeleteFailureThenSucceedsLeavingNoFiles() throws Exception {
+        Cookie token = register("cleanup-retry@example.com");
+        storage.failOn(2);
+        storage.failNextDeletes(1);
+
+        mvc.perform(multipart("/api/import-batches")
+                        .file(png("first.png"))
+                        .file(png("second.png"))
+                        .with(csrf()).cookie(token))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("STORAGE_FAILED"));
+
+        assertThat(rowCount("import_batches")).isZero();
+        assertThat(rowCount("invoice_files")).isZero();
+        assertThat(storage.deleteAttempts()).isGreaterThanOrEqualTo(2);
+        try (var paths = Files.walk(STORAGE_ROOT)) {
+            assertThat(paths.filter(Files::isRegularFile)).isEmpty();
+        }
+    }
+
+    @Test
+    void surfacesPersistentDeleteFailureInsteadOfSwallowingIt() throws Exception {
+        Cookie token = register("cleanup-fail@example.com");
+        storage.failOn(2);
+        storage.failDeletesAlways();
+
+        mvc.perform(multipart("/api/import-batches")
+                        .file(png("first.png"))
+                        .file(png("second.png"))
+                        .with(csrf()).cookie(token))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("STORAGE_CLEANUP_FAILED"))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("removed")));
+
+        assertThat(rowCount("import_batches")).isZero();
+        assertThat(rowCount("invoice_files")).isZero();
+        assertThat(storage.deleteAttempts()).isGreaterThanOrEqualTo(2);
+    }
+
+    @Test
     void requiresAuthenticationAndCsrf() throws Exception {
         Cookie token = register("security-upload@example.com");
         mvc.perform(multipart("/api/import-batches").file(png("a.png")).with(csrf()))
@@ -219,14 +259,20 @@ class ImportControllerTest {
         @Primary
         FailingStorage testFileStorage(UploadPolicy policy) {
             return new FailingStorage(
-                    new LocalFileStorage(STORAGE_ROOT.toString(), policy));
+                    new LocalFileStorage(
+                            STORAGE_ROOT.toString(),
+                            policy,
+                            new PdfBoxPageChecker(policy)));
         }
     }
 
     static final class FailingStorage implements FileStorage {
         private final FileStorage delegate;
         private final AtomicInteger calls = new AtomicInteger();
+        private final AtomicInteger deleteAttempts = new AtomicInteger();
         private volatile int failOn = Integer.MAX_VALUE;
+        private volatile int remainingDeleteFailures;
+        private volatile boolean failDeletesAlways;
 
         FailingStorage(FileStorage delegate) {
             this.delegate = delegate;
@@ -236,13 +282,30 @@ class ImportControllerTest {
             failOn = call;
         }
 
+        void failNextDeletes(int count) {
+            remainingDeleteFailures = count;
+            failDeletesAlways = false;
+        }
+
+        void failDeletesAlways() {
+            failDeletesAlways = true;
+            remainingDeleteFailures = Integer.MAX_VALUE;
+        }
+
         int calls() {
             return calls.get();
         }
 
+        int deleteAttempts() {
+            return deleteAttempts.get();
+        }
+
         void reset() {
             calls.set(0);
+            deleteAttempts.set(0);
             failOn = Integer.MAX_VALUE;
+            remainingDeleteFailures = 0;
+            failDeletesAlways = false;
         }
 
         @Override
@@ -262,6 +325,16 @@ class ImportControllerTest {
 
         @Override
         public void delete(UUID userId, String storageKey) {
+            deleteAttempts.incrementAndGet();
+            if (failDeletesAlways || remainingDeleteFailures > 0) {
+                if (!failDeletesAlways) {
+                    remainingDeleteFailures--;
+                }
+                throw new UploadException(
+                        "STORAGE_CLEANUP_FAILED",
+                        "Stored file could not be removed",
+                        HttpStatus.INTERNAL_SERVER_ERROR);
+            }
             delegate.delete(userId, storageKey);
         }
     }
