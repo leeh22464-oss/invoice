@@ -13,9 +13,16 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.util.Base64;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.not;
@@ -49,6 +56,7 @@ class OcrCredentialControllerTest {
 
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
+    @Autowired OcrCredentialService credentialService;
     @MockitoBean PaddleTokenClient tokenClient;
 
     @BeforeEach
@@ -145,11 +153,62 @@ class OcrCredentialControllerTest {
                 .andExpect(status().isForbidden());
     }
 
+    @Test
+    void concurrentFirstSaveForSameUserAtomicallyUpsertsOneRow() throws Exception {
+        register("concurrent@example.com");
+        UUID userId = userId("concurrent@example.com");
+        var barrier = new CyclicBarrier(2);
+        when(tokenClient.validate(anyString(), anyString())).thenAnswer(invocation -> {
+            barrier.await(5, TimeUnit.SECONDS);
+            return new CredentialValidation(true, "Credentials are valid");
+        });
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            var first = executor.submit(() -> credentialService.save(
+                    userId, new CredentialRequest("first-key", "first-secret")));
+            var second = executor.submit(() -> credentialService.save(
+                    userId, new CredentialRequest("second-key", "second-secret")));
+
+            assertThat(first.get(10, TimeUnit.SECONDS).configured()).isTrue();
+            assertThat(second.get(10, TimeUnit.SECONDS).configured()).isTrue();
+        } finally {
+            executor.shutdownNow();
+        }
+
+        assertThat(jdbc.queryForObject(
+                "select count(*) from ocr_credentials where user_id = ?",
+                Integer.class,
+                userId)).isEqualTo(1);
+    }
+
+    @Test
+    void remoteValidationRunsOutsideTransactionsForSaveAndRetest() throws Exception {
+        register("transaction@example.com");
+        UUID userId = userId("transaction@example.com");
+        List<Boolean> transactionStates = new CopyOnWriteArrayList<>();
+        when(tokenClient.validate(anyString(), anyString())).thenAnswer(invocation -> {
+            transactionStates.add(TransactionSynchronizationManager.isActualTransactionActive());
+            return new CredentialValidation(true, "Credentials are valid");
+        });
+
+        credentialService.save(userId, new CredentialRequest("outside-key", "outside-secret"));
+        credentialService.test(userId);
+
+        assertThat(transactionStates).containsExactly(false, false);
+    }
+
     private Cookie register(String email) throws Exception {
         return mvc.perform(post("/api/auth/register").with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"" + email + "\",\"password\":\"StrongPass1!\"}"))
                 .andReturn().getResponse().getCookie("access_token");
+    }
+
+    private UUID userId(String email) {
+        return jdbc.queryForObject(
+                "select id from users where email = ?",
+                UUID.class,
+                email);
     }
 
     private void save(Cookie token, String apiKey, String secretKey) throws Exception {

@@ -9,7 +9,11 @@ import org.springframework.web.reactive.function.client.WebClient;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -22,12 +26,14 @@ class BaiduPaddleTokenClientTest {
     private volatile String responseBody;
     private volatile int responseDelayMillis;
     private volatile String receivedQuery;
+    private volatile String receivedBody;
 
     @BeforeEach
     void setUp() throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/oauth/2.0/token", exchange -> {
             receivedQuery = exchange.getRequestURI().getRawQuery();
+            receivedBody = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             try {
                 Thread.sleep(responseDelayMillis);
             } catch (InterruptedException exception) {
@@ -57,10 +63,11 @@ class BaiduPaddleTokenClientTest {
 
         assertThat(client.validate("client-id", "client-secret"))
                 .isEqualTo(new CredentialValidation(true, "Credentials are valid"));
-        assertThat(receivedQuery)
-                .contains("grant_type=client_credentials")
-                .contains("client_id=client-id")
-                .contains("client_secret=client-secret");
+        assertThat(receivedQuery).isNull();
+        assertThat(formParameters(receivedBody))
+                .containsEntry("grant_type", "client_credentials")
+                .containsEntry("client_id", "client-id")
+                .containsEntry("client_secret", "client-secret");
     }
 
     @Test
@@ -72,6 +79,9 @@ class BaiduPaddleTokenClientTest {
         assertThat(client.validate("bad-api", "bad-secret").valid()).isFalse();
 
         respond(200, "{\"error\":\"invalid_client\"}");
+        assertThat(client.validate("bad-api", "bad-secret").valid()).isFalse();
+
+        respond(403, "{\"error\":\"invalid_client\",\"error_description\":\"bad\"}");
         assertThat(client.validate("bad-api", "bad-secret").valid()).isFalse();
     }
 
@@ -96,6 +106,14 @@ class BaiduPaddleTokenClientTest {
         responseStatus = status;
         responseBody = body;
         responseDelayMillis = 0;
+    }
+
+    private Map<String, String> formParameters(String body) {
+        return Arrays.stream(body.split("&"))
+                .map(part -> part.split("=", 2))
+                .collect(Collectors.toMap(
+                        pair -> URLDecoder.decode(pair[0], StandardCharsets.UTF_8),
+                        pair -> URLDecoder.decode(pair[1], StandardCharsets.UTF_8)));
     }
 
     private void assertUnavailableWithoutSecrets(String apiKey, String secretKey) {

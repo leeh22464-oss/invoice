@@ -5,9 +5,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatusCode;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.BodyInserters;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
@@ -39,11 +41,11 @@ public class BaiduPaddleTokenClient implements PaddleTokenClient {
     public CredentialValidation validate(String apiKey, String secretKey) {
         try {
             CredentialValidation result = webClient.post()
-                    .uri(tokenUrl, uri -> uri
-                            .queryParam("grant_type", "client_credentials")
-                            .queryParam("client_id", apiKey)
-                            .queryParam("client_secret", secretKey)
-                            .build())
+                    .uri(tokenUrl)
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .body(BodyInserters.fromFormData("grant_type", "client_credentials")
+                            .with("client_id", apiKey)
+                            .with("client_secret", secretKey))
                     .exchangeToMono(this::mapResponse)
                     .block(timeout);
             if (result == null) {
@@ -66,7 +68,11 @@ public class BaiduPaddleTokenClient implements PaddleTokenClient {
             return response.releaseBody().then(Mono.error(unavailable()));
         }
         if (status.isError()) {
-            return response.releaseBody().then(Mono.error(unavailable()));
+            return response.bodyToMono(JsonNode.class)
+                    .defaultIfEmpty(com.fasterxml.jackson.databind.node.NullNode.getInstance())
+                    .flatMap(json -> hasCredentialError(json)
+                            ? Mono.just(INVALID)
+                            : Mono.error(unavailable()));
         }
         return response.bodyToMono(JsonNode.class)
                 .defaultIfEmpty(com.fasterxml.jackson.databind.node.NullNode.getInstance())
@@ -74,11 +80,20 @@ public class BaiduPaddleTokenClient implements PaddleTokenClient {
     }
 
     private CredentialValidation validationFrom(JsonNode json) {
-        if (json.has("error") || json.has("error_description")) {
+        if (hasCredentialError(json)) {
             return INVALID;
         }
         JsonNode accessToken = json.get("access_token");
         return accessToken != null && !accessToken.asText("").isBlank() ? VALID : INVALID;
+    }
+
+    private boolean hasCredentialError(JsonNode json) {
+        return hasNonblank(json, "error") || hasNonblank(json, "error_description");
+    }
+
+    private boolean hasNonblank(JsonNode json, String field) {
+        JsonNode value = json.get(field);
+        return value != null && !value.asText("").isBlank();
     }
 
     private static PaddleServiceUnavailableException unavailable() {

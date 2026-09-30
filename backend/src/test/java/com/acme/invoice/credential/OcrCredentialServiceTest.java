@@ -19,7 +19,7 @@ import static org.mockito.Mockito.*;
 class OcrCredentialServiceTest {
 
     private final UUID userId = UUID.randomUUID();
-    private final OcrCredentialRepository repository = mock(OcrCredentialRepository.class);
+    private final OcrCredentialPersistence persistence = mock(OcrCredentialPersistence.class);
     private final SecretCipher cipher = mock(SecretCipher.class);
     private final PaddleTokenClient tokenClient = mock(PaddleTokenClient.class);
     private final Clock clock = Clock.fixed(Instant.parse("2026-09-29T00:00:00Z"), ZoneOffset.UTC);
@@ -27,7 +27,7 @@ class OcrCredentialServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new OcrCredentialService(repository, cipher, tokenClient, clock);
+        service = new OcrCredentialService(persistence, cipher, tokenClient, clock);
     }
 
     @Test
@@ -40,23 +40,35 @@ class OcrCredentialServiceTest {
     void validUpdateTrimsEncryptsIndependentlyAndScopesLookupToOwner() {
         when(tokenClient.validate("api-key-1234", "secret-value"))
                 .thenReturn(new CredentialValidation(true, "Credentials are valid"));
-        when(repository.findByUserId(userId)).thenReturn(Optional.empty());
         when(cipher.encrypt("api-key-1234")).thenReturn(new EncryptedSecret(new byte[]{1}, new byte[]{2}));
         when(cipher.encrypt("secret-value")).thenReturn(new EncryptedSecret(new byte[]{3}, new byte[]{4}));
-        when(repository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(persistence.upsert(eq(userId), any(), any(), eq("api-****1234"), eq(clock.instant())))
+                .thenAnswer(invocation -> new OcrCredential(
+                        UUID.randomUUID(),
+                        userId,
+                        invocation.<EncryptedSecret>getArgument(1).iv(),
+                        invocation.<EncryptedSecret>getArgument(1).ciphertext(),
+                        invocation.<EncryptedSecret>getArgument(2).iv(),
+                        invocation.<EncryptedSecret>getArgument(2).ciphertext(),
+                        invocation.getArgument(3),
+                        "VALID",
+                        clock.instant(),
+                        clock.instant(),
+                        clock.instant()));
 
         var response = service.save(userId,
                 new CredentialRequest(" api-key-1234 ", " secret-value "));
 
         assertThat(response.apiKeyMask()).isEqualTo("api-****1234");
         assertThat(response.validationStatus()).isEqualTo("VALID");
-        var saved = captureSaved();
-        assertThat(saved.getUserId()).isEqualTo(userId);
-        assertThat(saved.getApiKeyIv()).containsExactly(1);
-        assertThat(saved.getSecretKeyIv()).containsExactly(3);
-        assertThat(saved.getApiKeyCiphertext()).containsExactly(2);
-        assertThat(saved.getSecretKeyCiphertext()).containsExactly(4);
-        verify(repository).findByUserId(userId);
+        var apiKey = ArgumentCaptor.forClass(EncryptedSecret.class);
+        var secretKey = ArgumentCaptor.forClass(EncryptedSecret.class);
+        verify(persistence).upsert(
+                eq(userId), apiKey.capture(), secretKey.capture(), eq("api-****1234"), eq(clock.instant()));
+        assertThat(apiKey.getValue().iv()).containsExactly(1);
+        assertThat(secretKey.getValue().iv()).containsExactly(3);
+        assertThat(apiKey.getValue().ciphertext()).containsExactly(2);
+        assertThat(secretKey.getValue().ciphertext()).containsExactly(4);
     }
 
     @Test
@@ -68,42 +80,39 @@ class OcrCredentialServiceTest {
                 new CredentialRequest("bad-api", "bad-secret")))
                 .isInstanceOf(InvalidCredentialException.class);
 
-        verify(repository, never()).save(any());
+        verify(persistence, never()).upsert(any(), any(), any(), any(), any());
         verify(cipher, never()).encrypt(any());
     }
 
     @Test
     void testsSavedCredentialAndUpdatesValidationTimestamp() {
         var existing = credential(userId);
-        when(repository.findByUserId(userId)).thenReturn(Optional.of(existing));
+        when(persistence.findByUserId(userId)).thenReturn(Optional.of(existing));
         when(cipher.decrypt(any())).thenReturn("stored-api", "stored-secret");
         when(tokenClient.validate("stored-api", "stored-secret"))
                 .thenReturn(new CredentialValidation(false, "Credentials are invalid"));
-        when(repository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(persistence.recordValidation(userId, false, clock.instant())).thenAnswer(invocation -> {
+            existing.recordValidation(false, clock.instant());
+            return existing;
+        });
 
         var response = service.test(userId);
 
         assertThat(response.validationStatus()).isEqualTo("INVALID");
         assertThat(response.lastValidatedAt()).isEqualTo(clock.instant());
-        verify(repository).findByUserId(userId);
+        verify(persistence).findByUserId(userId);
     }
 
     @Test
     void statusAndDeleteAreOwnerScopedAndDeleteIsIdempotent() {
-        when(repository.findByUserId(userId)).thenReturn(Optional.empty());
+        when(persistence.findByUserId(userId)).thenReturn(Optional.empty());
 
         assertThat(service.status(userId).configured()).isFalse();
         service.delete(userId);
         service.delete(userId);
 
-        verify(repository).findByUserId(userId);
-        verify(repository, times(2)).deleteByUserId(userId);
-    }
-
-    private OcrCredential captureSaved() {
-        var captor = ArgumentCaptor.forClass(OcrCredential.class);
-        verify(repository).save(captor.capture());
-        return captor.getValue();
+        verify(persistence).findByUserId(userId);
+        verify(persistence, times(2)).deleteByUserId(userId);
     }
 
     private OcrCredential credential(UUID owner) {
