@@ -74,6 +74,19 @@ public class OcrCredentialService {
         persistence.deleteByUserId(userId);
     }
 
+    public PaddleCredential decryptForUser(UUID userId) {
+        OcrCredential stored = persistence.findByUserId(userId)
+                .orElseThrow(() -> new CredentialException(
+                        HttpStatus.NOT_FOUND,
+                        "OCR_CREDENTIALS_NOT_FOUND",
+                        "OCR credentials are not configured"));
+        String apiKey = cipher.decrypt(
+                new EncryptedSecret(stored.getApiKeyIv(), stored.getApiKeyCiphertext()));
+        String secretKey = cipher.decrypt(
+                new EncryptedSecret(stored.getSecretKeyIv(), stored.getSecretKeyCiphertext()));
+        return new PaddleCredential(apiKey, secretKey);
+    }
+
     public static String mask(String apiKey) {
         if (apiKey.length() < 8) {
             return "****";

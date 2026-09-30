@@ -9,4 +9,6 @@ public interface InvoiceFileRepository extends JpaRepository<InvoiceFile, UUID> 
 
     Optional<InvoiceFile> findByIdAndBatchIdAndUserId(
             UUID id, UUID batchId, UUID userId);
+
+    Optional<InvoiceFile> findByIdAndUserId(UUID id, UUID userId);
 }

@@ -1,0 +1,20 @@
+{
+  "log_id": 1005,
+  "words_result_num": 1,
+  "words_result": [
+    {
+      "type": "air_ticket",
+      "probability": 0.95,
+      "result": {
+        "ticket_number": [{"word": "9991234567890"}],
+        "serial_number": [{"word": "0012345678"}],
+        "start_date": [{"word": "2024年05月12日"}],
+        "date": [{"word": "2024年05月15日"}],
+        "fare": [{"word": "1200.00"}],
+        "commodity_tax": [{"word": "108.00"}],
+        "ticket_rates": [{"word": "1380.00"}],
+        "invoice_num": [{"word": "00005555"}]
+      }
+    }
+  ]
+}

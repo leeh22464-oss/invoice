@@ -1,0 +1,19 @@
+{
+  "log_id": 1008,
+  "words_result_num": 1,
+  "words_result": [
+    {
+      "type": "customs_payment",
+      "probability": 0.92,
+      "result": {
+        "CustomDeclarationNo": [{"word": "012020240615000001"}],
+        "InvoiceCode": [{"word": "000000000000"}],
+        "InvoiceNum": [{"word": "00000001"}],
+        "InvoiceDate": [{"word": "2024年07月18日"}],
+        "TotalAmount": [{"word": "5000.00"}],
+        "TotalTax": [{"word": "650.00"}],
+        "AmountInFiguers": [{"word": "5650.00"}]
+      }
+    }
+  ]
+}

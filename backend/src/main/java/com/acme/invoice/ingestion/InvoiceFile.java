@@ -68,8 +68,21 @@ public class InvoiceFile {
         this.updatedAt = createdAt;
     }
 
+    public void markStatus(String status, Instant updatedAt) {
+        this.status = status;
+        this.updatedAt = updatedAt;
+    }
+
     public UUID getId() {
         return id;
+    }
+
+    public UUID getUserId() {
+        return userId;
+    }
+
+    public UUID getBatchId() {
+        return batchId;
     }
 
     public String getOriginalName() {
@@ -84,7 +97,27 @@ public class InvoiceFile {
         return size;
     }
 
+    public String getSha256() {
+        return sha256;
+    }
+
     public String getStorageKey() {
         return storageKey;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+
+    public Instant getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public StoredFile toStoredFile() {
+        return new StoredFile(storageKey, size, sha256, mediaType);
     }
 }

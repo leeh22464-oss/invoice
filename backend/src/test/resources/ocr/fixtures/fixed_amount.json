@@ -1,0 +1,17 @@
+{
+  "log_id": 1007,
+  "words_result_num": 1,
+  "words_result": [
+    {
+      "type": "quota_invoice",
+      "probability": 0.93,
+      "result": {
+        "invoice_code": [{"word": "132081490320"}],
+        "invoice_number": [{"word": "01275486"}],
+        "invoice_rate_in_figure": [{"word": "100.00"}],
+        "invoice_rate": [{"word": "壹佰元整"}],
+        "Location": [{"word": "陕西"}]
+      }
+    }
+  ]
+}

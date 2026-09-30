@@ -1,0 +1,19 @@
+{
+  "log_id": 1002,
+  "words_result_num": 1,
+  "words_result": [
+    {
+      "type": "vat_invoice",
+      "probability": 0.98,
+      "result": {
+        "InvoiceType": [{"word": "普通发票"}],
+        "InvoiceCode": [{"word": "044001800222"}],
+        "InvoiceNum": [{"word": "00098765"}],
+        "InvoiceDate": [{"word": "2024年02月20日"}],
+        "TotalAmount": [{"word": "200.00"}],
+        "TotalTax": [{"word": "6.00"}],
+        "AmountInFiguers": [{"word": "206.00"}]
+      }
+    }
+  ]
+}

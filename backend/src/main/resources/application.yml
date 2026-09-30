@@ -36,4 +36,5 @@ app:
     master-key: ${APP_CREDENTIAL_MASTER_KEY:}
   paddle:
     token-url: ${APP_PADDLE_TOKEN_URL:https://aip.baidubce.com/oauth/2.0/token}
+    recognize-url: ${APP_PADDLE_RECOGNIZE_URL:https://aip.baidubce.com/rest/2.0/ocr/v1/multiple_invoice}
     timeout-ms: 10000

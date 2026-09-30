@@ -1,0 +1,19 @@
+{
+  "log_id": 1004,
+  "words_result_num": 1,
+  "words_result": [
+    {
+      "type": "train_ticket",
+      "probability": 0.96,
+      "result": {
+        "ticket_num": [{"word": "A001234"}],
+        "serial_number": [{"word": "12345678901234567890"}],
+        "date": [{"word": "2024年04月10日"}],
+        "ticket_rates": [{"word": "156.50"}],
+        "fare": [{"word": "143.58"}],
+        "tax": [{"word": "12.92"}],
+        "invoice_num": [{"word": "00001234"}]
+      }
+    }
+  ]
+}

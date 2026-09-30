@@ -1,0 +1,17 @@
+{
+  "log_id": 1006,
+  "words_result_num": 1,
+  "words_result": [
+    {
+      "type": "taxi_receipt",
+      "probability": 0.94,
+      "result": {
+        "InvoiceCode": [{"word": "111001234567"}],
+        "InvoiceNum": [{"word": "00001234"}],
+        "Date": [{"word": "2024年06月01日"}],
+        "Fare": [{"word": "35.00"}],
+        "TotalFare": [{"word": "38.00"}]
+      }
+    }
+  ]
+}

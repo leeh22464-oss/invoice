@@ -1,0 +1,19 @@
+{
+  "log_id": 1003,
+  "words_result_num": 1,
+  "words_result": [
+    {
+      "type": "vat_invoice",
+      "probability": 0.97,
+      "result": {
+        "InvoiceType": [{"word": "电子普通发票"}],
+        "InvoiceCode": [{"word": ""}],
+        "InvoiceNum": [{"word": "24312000000000001234"}],
+        "InvoiceDate": [{"word": "2024年03月08日"}],
+        "TotalAmount": [{"word": "88.50"}],
+        "TotalTax": [{"word": "5.31"}],
+        "AmountInFiguers": [{"word": "93.81"}]
+      }
+    }
+  ]
+}
