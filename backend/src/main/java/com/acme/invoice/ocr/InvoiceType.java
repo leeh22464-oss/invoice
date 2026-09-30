@@ -8,5 +8,6 @@ public enum InvoiceType {
     FLIGHT,
     TAXI,
     FIXED_AMOUNT,
-    CUSTOMS_PAYMENT
+    CUSTOMS_PAYMENT,
+    UNKNOWN
 }

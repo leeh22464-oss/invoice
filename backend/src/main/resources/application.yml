@@ -38,3 +38,6 @@ app:
     token-url: ${APP_PADDLE_TOKEN_URL:https://aip.baidubce.com/oauth/2.0/token}
     recognize-url: ${APP_PADDLE_RECOGNIZE_URL:https://aip.baidubce.com/rest/2.0/ocr/v1/multiple_invoice}
     timeout-ms: 10000
+  verification:
+    confidence-threshold: ${APP_VERIFICATION_CONFIDENCE_THRESHOLD:0.80}
+    max-age-years: ${APP_VERIFICATION_MAX_AGE_YEARS:10}
