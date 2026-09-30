@@ -1,6 +1,7 @@
 package com.acme.invoice.deduplication;
 
 import com.acme.invoice.invoice.Invoice;
+import com.acme.invoice.invoice.InvoiceRepository;
 import com.acme.invoice.invoice.InvoiceStatus;
 import com.acme.invoice.ocr.InvoiceType;
 import com.acme.invoice.ocr.NormalizedField;
@@ -58,6 +59,9 @@ class DeduplicationServiceTest {
 
     @Autowired
     SuspectedDuplicateScorer suspectedDuplicateScorer;
+
+    @Autowired
+    InvoiceRepository invoices;
 
     @Autowired
     JdbcTemplate jdbc;
@@ -205,7 +209,70 @@ class DeduplicationServiceTest {
         assertThat(result.suspectedMatch()).isNotNull();
         assertThat(result.suspectedMatch().matchedFields())
                 .contains("invoiceDate", "total");
+        assertThat(candidate.getStatus()).isEqualTo(InvoiceStatus.REVIEW_REQUIRED);
+        assertThat(candidate.getStatus()).isNotEqualTo(InvoiceStatus.PASSED);
         assertThat(candidate.getStatus()).isNotEqualTo(InvoiceStatus.BLOCKED_DUPLICATE);
+    }
+
+    @Test
+    void fieldsJsonRoundTripKeepsPartyFieldsInSuspectedScoringAfterReload() {
+        UUID userId = seedUser("fields-json@example.com");
+        Map<String, NormalizedField> sharedFields = Map.of(
+                "PurchaserName", new NormalizedField("Acme Buyer", new BigDecimal("0.95")),
+                "SellerName", new NormalizedField("Beta Seller", new BigDecimal("0.94")),
+                "InvoiceNum", new NormalizedField("00011111", new BigDecimal("0.99")),
+                "InvoiceCode", new NormalizedField("044001800111", new BigDecimal("0.99")));
+
+        Invoice first = newInvoice(
+                userId,
+                InvoiceType.VAT_ORDINARY,
+                "044001800111",
+                "00011111",
+                LocalDate.of(2024, 3, 8),
+                new BigDecimal("500.00"),
+                new BigDecimal("30.00"),
+                new BigDecimal("530.00"),
+                sharedFields);
+        DeduplicationResult firstResult = deduplicationService.evaluate(userId, first);
+        assertThat(firstResult.exactDuplicate()).isFalse();
+        assertThat(first.getFieldsJson()).isNotEqualTo("{}");
+        assertThat(first.getFieldsJson()).contains("PurchaserName").contains("SellerName");
+
+        String persistedJson = jdbc.queryForObject(
+                "select fields_json from invoices where id = ?",
+                String.class,
+                first.getId());
+        assertThat(persistedJson).contains("Acme Buyer").contains("Beta Seller");
+
+        Invoice second = newInvoice(
+                userId,
+                InvoiceType.VAT_ORDINARY,
+                "044001800112",
+                "00011112",
+                LocalDate.of(2024, 3, 8),
+                new BigDecimal("500.00"),
+                new BigDecimal("30.00"),
+                new BigDecimal("530.00"),
+                Map.of(
+                        "PurchaserName", new NormalizedField("Acme Buyer", new BigDecimal("0.95")),
+                        "SellerName", new NormalizedField("Beta Seller", new BigDecimal("0.94")),
+                        "InvoiceNum", new NormalizedField("00011112", new BigDecimal("0.99")),
+                        "InvoiceCode", new NormalizedField("044001800112", new BigDecimal("0.99"))));
+
+        DeduplicationResult secondResult = deduplicationService.evaluate(userId, second);
+
+        assertThat(secondResult.exactDuplicate()).isFalse();
+        assertThat(secondResult.suspectedMatch()).isNotNull();
+        assertThat(secondResult.suspectedMatch().matchedFields())
+                .contains("PurchaserName", "SellerName", "invoiceDate", "total");
+        assertThat(second.getStatus()).isEqualTo(InvoiceStatus.REVIEW_REQUIRED);
+
+        Invoice loaded = invoices.findById(first.getId()).orElseThrow();
+        NormalizedInvoice restored = loaded.toNormalized();
+        assertThat(restored.fields())
+                .containsKeys("PurchaserName", "SellerName");
+        assertThat(restored.fields().get("PurchaserName").sourceText()).isEqualTo("Acme Buyer");
+        assertThat(restored.fields().get("SellerName").sourceText()).isEqualTo("Beta Seller");
     }
 
     private UUID seedUser(String email) {

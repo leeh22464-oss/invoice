@@ -3,23 +3,32 @@ package com.acme.invoice.invoice;
 import com.acme.invoice.ocr.InvoiceType;
 import com.acme.invoice.ocr.NormalizedField;
 import com.acme.invoice.ocr.NormalizedInvoice;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
+import jakarta.persistence.PostLoad;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
 @Entity
 @Table(name = "invoices")
 public class Invoice {
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final TypeReference<Map<String, Map<String, Object>>> FIELDS_JSON_TYPE =
+            new TypeReference<>() {};
 
     @Id
     private UUID id;
@@ -115,6 +124,8 @@ public class Invoice {
             UUID userId,
             NormalizedInvoice normalized,
             Instant now) {
+        Map<String, NormalizedField> fields =
+                normalized.fields() == null ? Map.of() : Map.copyOf(normalized.fields());
         return new Invoice(
                 id,
                 userId,
@@ -127,8 +138,8 @@ public class Invoice {
                 normalized.total(),
                 InvoiceStatus.REVIEW_REQUIRED,
                 null,
-                "{}",
-                normalized.fields(),
+                serializeFields(fields),
+                fields,
                 now,
                 now);
     }
@@ -148,6 +159,7 @@ public class Invoice {
             Map<String, NormalizedField> fields,
             Instant createdAt,
             Instant updatedAt) {
+        Map<String, NormalizedField> safeFields = fields == null ? Map.of() : Map.copyOf(fields);
         return new Invoice(
                 id,
                 userId,
@@ -160,13 +172,17 @@ public class Invoice {
                 total,
                 status,
                 exactDuplicateKey,
-                "{}",
-                fields,
+                serializeFields(safeFields),
+                safeFields,
                 createdAt,
                 updatedAt);
     }
 
     public NormalizedInvoice toNormalized() {
+        Map<String, NormalizedField> restored = parseFields(fieldsJson);
+        if (restored.isEmpty() && fields != null && !fields.isEmpty()) {
+            restored = fields;
+        }
         return new NormalizedInvoice(
                 invoiceType,
                 invoiceCode,
@@ -175,7 +191,12 @@ public class Invoice {
                 amount,
                 tax,
                 total,
-                fields);
+                restored);
+    }
+
+    @PostLoad
+    void hydrateFieldsFromJson() {
+        this.fields = parseFields(fieldsJson);
     }
 
     public void markStatus(InvoiceStatus status, Instant now) {
@@ -249,5 +270,42 @@ public class Invoice {
 
     public String getFieldsJson() {
         return fieldsJson;
+    }
+
+    private static String serializeFields(Map<String, NormalizedField> fields) {
+        try {
+            Map<String, Object> payload = new LinkedHashMap<>();
+            fields.forEach((name, field) -> {
+                Map<String, Object> entry = new LinkedHashMap<>();
+                entry.put("sourceText", field.sourceText());
+                entry.put("confidence", field.confidence());
+                payload.put(name, entry);
+            });
+            return MAPPER.writeValueAsString(payload);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Unable to serialize invoice fields", exception);
+        }
+    }
+
+    private static Map<String, NormalizedField> parseFields(String json) {
+        if (json == null || json.isBlank() || "{}".equals(json.trim())) {
+            return Map.of();
+        }
+        try {
+            Map<String, Map<String, Object>> raw = MAPPER.readValue(json, FIELDS_JSON_TYPE);
+            Map<String, NormalizedField> parsed = new LinkedHashMap<>();
+            raw.forEach((name, entry) -> {
+                Object text = entry == null ? null : entry.get("sourceText");
+                Object confidence = entry == null ? null : entry.get("confidence");
+                parsed.put(
+                        name,
+                        new NormalizedField(
+                                text == null ? null : String.valueOf(text),
+                                confidence == null ? null : new BigDecimal(String.valueOf(confidence))));
+            });
+            return Map.copyOf(parsed);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Unable to parse invoice fields_json", exception);
+        }
     }
 }

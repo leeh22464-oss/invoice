@@ -84,6 +84,10 @@ public class DeduplicationService {
         }
 
         DuplicateScore suspected = findBestSuspected(userId, invoice, normalized);
+        if (suspected != null) {
+            invoice.markStatus(InvoiceStatus.REVIEW_REQUIRED, clock.instant());
+            requiresNewTx.executeWithoutResult(status -> invoices.saveAndFlush(invoice));
+        }
         return new DeduplicationResult(false, null, suspected);
     }
 

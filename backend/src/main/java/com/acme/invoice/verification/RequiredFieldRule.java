@@ -1,6 +1,7 @@
 package com.acme.invoice.verification;
 
 import com.acme.invoice.ocr.InvoiceType;
+import com.acme.invoice.ocr.NormalizedField;
 import com.acme.invoice.ocr.NormalizedInvoice;
 import org.springframework.stereotype.Component;
 
@@ -21,7 +22,12 @@ public class RequiredFieldRule implements VerificationRule {
             require(issues, "invoiceNumber", invoice.invoiceNumber(), true);
             requireDate(issues, invoice);
             requireTotal(issues, invoice);
-        } else if (type == InvoiceType.RAILWAY || type == InvoiceType.FLIGHT) {
+        } else if (type == InvoiceType.RAILWAY) {
+            require(issues, "ticket_num", fieldText(invoice, "ticket_num"), true);
+            requireDate(issues, invoice);
+            requireTotal(issues, invoice);
+        } else if (type == InvoiceType.FLIGHT) {
+            require(issues, "ticket_number", fieldText(invoice, "ticket_number"), true);
             requireDate(issues, invoice);
             requireTotal(issues, invoice);
         } else if (type != InvoiceType.UNKNOWN) {
@@ -63,5 +69,13 @@ public class RequiredFieldRule implements VerificationRule {
                     "total is required",
                     VerificationSeverity.REVIEW));
         }
+    }
+
+    private static String fieldText(NormalizedInvoice invoice, String name) {
+        if (invoice.fields() == null) {
+            return null;
+        }
+        NormalizedField field = invoice.fields().get(name);
+        return field == null ? null : field.sourceText();
     }
 }

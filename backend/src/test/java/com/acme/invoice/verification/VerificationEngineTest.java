@@ -207,6 +207,46 @@ class VerificationEngineTest {
         assertThat(engine.statusFor(issues)).isEqualTo(InvoiceStatus.PASSED);
     }
 
+    @Test
+    void railwayMissingElectronicTicketNumberProducesReviewIssue() {
+        NormalizedInvoice invoice = new NormalizedInvoice(
+                InvoiceType.RAILWAY,
+                null,
+                null,
+                LocalDate.of(2024, 4, 10),
+                new BigDecimal("156.50"),
+                null,
+                new BigDecimal("156.50"),
+                Map.of());
+
+        List<VerificationIssue> issues = engine.verify(invoice);
+
+        assertThat(issues)
+                .anyMatch(issue -> "MISSING_REQUIRED_FIELD".equals(issue.code())
+                        && "ticket_num".equals(issue.field()));
+        assertThat(engine.statusFor(issues)).isEqualTo(InvoiceStatus.REVIEW_REQUIRED);
+    }
+
+    @Test
+    void flightMissingElectronicTicketNumberProducesReviewIssue() {
+        NormalizedInvoice invoice = new NormalizedInvoice(
+                InvoiceType.FLIGHT,
+                null,
+                null,
+                LocalDate.of(2024, 5, 12),
+                new BigDecimal("1380.00"),
+                null,
+                new BigDecimal("1380.00"),
+                Map.of());
+
+        List<VerificationIssue> issues = engine.verify(invoice);
+
+        assertThat(issues)
+                .anyMatch(issue -> "MISSING_REQUIRED_FIELD".equals(issue.code())
+                        && "ticket_number".equals(issue.field()));
+        assertThat(engine.statusFor(issues)).isEqualTo(InvoiceStatus.REVIEW_REQUIRED);
+    }
+
     private static NormalizedInvoice vat(
             InvoiceType type,
             String code,
