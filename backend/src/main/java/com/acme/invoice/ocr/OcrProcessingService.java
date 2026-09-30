@@ -10,7 +10,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -35,6 +37,8 @@ public class OcrProcessingService {
     private final InvoiceFileRepository invoiceFileRepository;
     private final StoredFileContentHolder contentHolder;
     private final Clock clock;
+    private final TransactionTemplate requiredTx;
+    private final TransactionTemplate requiresNewTx;
 
     public OcrProcessingService(
             OcrCredentialService credentialService,
@@ -45,7 +49,8 @@ public class OcrProcessingService {
             NormalizedInvoiceRepository normalizedInvoiceRepository,
             InvoiceFileRepository invoiceFileRepository,
             StoredFileContentHolder contentHolder,
-            Clock clock) {
+            Clock clock,
+            PlatformTransactionManager transactionManager) {
         this.credentialService = credentialService;
         this.storage = storage;
         this.ocrProvider = ocrProvider;
@@ -55,10 +60,31 @@ public class OcrProcessingService {
         this.invoiceFileRepository = invoiceFileRepository;
         this.contentHolder = contentHolder;
         this.clock = clock;
+        this.requiredTx = new TransactionTemplate(transactionManager);
+        this.requiresNewTx = new TransactionTemplate(transactionManager);
+        this.requiresNewTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
-    @Transactional
     public void processFile(UUID userId, UUID invoiceFileId) {
+        try {
+            requiredTx.executeWithoutResult(status -> processInTransaction(userId, invoiceFileId));
+        } catch (OcrProcessingException exception) {
+            if ("INVOICE_FILE_NOT_FOUND".equals(exception.getCode())) {
+                throw exception;
+            }
+            persistFailedStatus(userId, invoiceFileId);
+            throw exception;
+        } catch (RuntimeException exception) {
+            persistFailedStatus(userId, invoiceFileId);
+            throw exception;
+        } finally {
+            if (contentHolder != null) {
+                contentHolder.take();
+            }
+        }
+    }
+
+    private void processInTransaction(UUID userId, UUID invoiceFileId) {
         InvoiceFile file = invoiceFileRepository.findByIdAndUserId(invoiceFileId, userId)
                 .orElseThrow(() -> new OcrProcessingException(
                         HttpStatus.NOT_FOUND,
@@ -103,18 +129,21 @@ public class OcrProcessingService {
 
             file.markStatus("REVIEW_REQUIRED", clock.instant());
             invoiceFileRepository.save(file);
-        } catch (RuntimeException | IOException exception) {
-            file.markStatus("FAILED", clock.instant());
-            invoiceFileRepository.save(file);
-            if (exception instanceof RuntimeException runtime) {
-                throw runtime;
-            }
+        } catch (IOException exception) {
             throw new PaddleServiceUnavailableException();
-        } finally {
-            if (contentHolder != null) {
-                contentHolder.take();
-            }
         }
+    }
+
+    private void persistFailedStatus(UUID userId, UUID invoiceFileId) {
+        requiresNewTx.executeWithoutResult(status -> {
+            InvoiceFile failed = invoiceFileRepository.findByIdAndUserId(invoiceFileId, userId)
+                    .orElseThrow(() -> new OcrProcessingException(
+                            HttpStatus.NOT_FOUND,
+                            "INVOICE_FILE_NOT_FOUND",
+                            "Invoice file was not found"));
+            failed.markStatus("FAILED", clock.instant());
+            invoiceFileRepository.save(failed);
+        });
     }
 
     private static String fieldsJson(NormalizedInvoice normalized) {

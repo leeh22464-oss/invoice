@@ -12,6 +12,10 @@ import com.acme.invoice.ingestion.InvoiceFileRepository;
 import com.acme.invoice.ingestion.StoredFile;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import java.io.ByteArrayInputStream;
 import java.math.BigDecimal;
@@ -68,7 +72,25 @@ class OcrProcessingServiceTest {
                 normalizedInvoiceRepository,
                 invoiceFileRepository,
                 null,
-                clock);
+                clock,
+                passthroughTransactionManager());
+    }
+
+    private static PlatformTransactionManager passthroughTransactionManager() {
+        return new PlatformTransactionManager() {
+            @Override
+            public TransactionStatus getTransaction(TransactionDefinition definition) {
+                return new SimpleTransactionStatus();
+            }
+
+            @Override
+            public void commit(TransactionStatus status) {
+            }
+
+            @Override
+            public void rollback(TransactionStatus status) {
+            }
+        };
     }
 
     @Test
