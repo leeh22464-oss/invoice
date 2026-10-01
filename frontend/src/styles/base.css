@@ -1,0 +1,223 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--canvas);
+  color: var(--text);
+  font-family: "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+button,
+input,
+a {
+  font: inherit;
+}
+
+.application {
+  min-height: 100vh;
+}
+
+.topbar {
+  padding: 28px 32px 0;
+}
+
+.brand {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.stage {
+  padding: 24px 32px 48px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+}
+
+.auth-card,
+.settings-card {
+  width: min(100%, 440px);
+  margin: 12vh auto 0;
+  padding: 32px;
+}
+
+.settings-card {
+  width: min(100%, 640px);
+  margin-top: 8px;
+}
+
+h2,
+h3 {
+  margin: 0 0 8px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+h2 {
+  font-size: 28px;
+}
+
+h3 {
+  font-size: 16px;
+}
+
+.lede,
+.muted,
+.switch-auth,
+.status-list {
+  color: var(--muted);
+}
+
+.lede,
+.switch-auth {
+  margin: 0 0 24px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+input {
+  width: 100%;
+  padding: 12px 14px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+}
+
+.field-error,
+.live-error {
+  min-height: 1.25em;
+  margin: 0 0 16px;
+  color: #a4262c;
+  font-size: 14px;
+}
+
+.field-error {
+  margin: 0;
+}
+
+.button-primary,
+.button-quiet {
+  border-radius: var(--radius-control);
+  padding: 12px 16px;
+  cursor: pointer;
+}
+
+.button-primary {
+  width: 100%;
+  color: #ffffff;
+  background: var(--primary);
+  border: 1px solid var(--primary);
+}
+
+.button-quiet {
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.button-primary:disabled,
+.button-quiet:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.actions .button-primary {
+  width: auto;
+  min-width: 128px;
+}
+
+a {
+  color: var(--focus);
+  text-underline-offset: 3px;
+}
+
+.shell-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 16px;
+  align-items: center;
+  width: min(100%, 640px);
+  margin: 0 auto 16px;
+}
+
+.shell-user {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.status-list {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 24px;
+  padding: 0;
+  list-style: none;
+}
+
+.status-list div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.status-list dt {
+  color: var(--muted);
+}
+
+.status-list dd {
+  margin: 0;
+  color: var(--text);
+  text-align: right;
+}
+
+.rule {
+  margin: -8px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
