@@ -177,11 +177,20 @@ a {
 
 .shell-bar {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
   gap: 16px;
   align-items: center;
-  width: min(100%, 640px);
+  width: min(100%, 1200px);
   margin: 0 auto 16px;
+}
+
+.shell-nav,
+.shell-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
 }
 
 .shell-user {
@@ -210,10 +219,228 @@ a {
   color: var(--muted);
 }
 
-.status-list dd {
+.status-list dd,
+.status-list li span:last-child {
   margin: 0;
   color: var(--text);
   text-align: right;
+}
+
+.upload-card,
+.ledger-card {
+  width: min(100%, 960px);
+  margin: 8px auto 0;
+  padding: 32px;
+}
+
+.ledger-card {
+  width: min(100%, 1200px);
+}
+
+.dropzone {
+  margin-bottom: 16px;
+  padding: 28px;
+  color: var(--muted);
+  text-align: center;
+  background: var(--canvas);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-card);
+}
+
+.file-list,
+.error-list,
+.issue-list {
+  margin: 0 0 16px;
+  padding-left: 18px;
+}
+
+.batch-progress {
+  margin-top: 24px;
+}
+
+.workbench-wrap {
+  width: min(100%, 1200px);
+  margin: 0 auto;
+}
+
+.queue-toggle {
+  display: none;
+  margin-bottom: 12px;
+}
+
+.workbench {
+  display: grid;
+  grid-template-columns: 220px minmax(420px, 1fr) 340px;
+  gap: 16px;
+  align-items: start;
+}
+
+.workbench-queue,
+.workbench-preview,
+.workbench-detail {
+  padding: 16px;
+}
+
+.preview-panel img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-control);
+}
+
+.queue-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 12px;
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.queue-item.is-selected {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
+}
+
+.confidence-flag {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.duplicate-exact {
+  margin: 0 0 8px;
+  color: #a4262c;
+}
+
+.ledger-filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.export-menu {
+  display: flex;
+  gap: 16px;
+  margin: 0 0 16px;
+}
+
+.ledger-loading,
+.ledger-empty,
+.ledger-error {
+  margin: 0;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+
+.ledger-empty {
+  color: var(--muted);
+}
+
+.ledger-error {
+  color: #a4262c;
+}
+
+.ledger-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.ledger-table caption {
+  margin-bottom: 8px;
+  text-align: left;
+  font-weight: 600;
+}
+
+.ledger-table th,
+.ledger-table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+select {
+  width: 100%;
+  padding: 12px 14px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+}
+
+@media (max-width: 1099px) {
+  .queue-toggle {
+    display: inline-flex;
+  }
+
+  .workbench {
+    grid-template-columns: minmax(420px, 1fr) 340px;
+  }
+
+  .workbench-queue {
+    position: fixed;
+    z-index: 4;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 220px;
+    margin: 0;
+    overflow: auto;
+    transform: translateX(-110%);
+  }
+
+  .workbench-queue.is-open {
+    transform: translateX(0);
+  }
+
+  .workbench-preview {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .workbench-detail {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .ledger-filters {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 759px) {
+  .workbench {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workbench-preview {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .workbench-detail {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .ledger-filters {
+    grid-template-columns: 1fr;
+  }
 }
 
 .rule {
