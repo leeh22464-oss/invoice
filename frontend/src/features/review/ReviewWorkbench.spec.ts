@@ -1,5 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { AxiosHeaders, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios'
+import { AxiosError, AxiosHeaders, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios'
 import { describe, expect, it } from 'vitest'
 
 import { api } from '../../lib/api'
@@ -287,5 +287,129 @@ describe('ReviewWorkbench', () => {
 
     const wrapper = await mountBench()
     expect(wrapper.get('[aria-live="assertive"]').text()).toContain('复核队列读取失败')
+  })
+
+  it('shows a file failure in an assertive region instead of the loading copy', async () => {
+    install((config) => {
+      const url = config.url ?? ''
+      if (url === '/api/invoices') {
+        return jsonResponse(config, 200, [invoice()])
+      }
+      throw new AxiosError(
+        'Request failed',
+        'ERR_BAD_REQUEST',
+        config,
+        null,
+        {
+          data: new Blob(
+            [JSON.stringify({ code: 'NOT_FOUND', message: '原票读取失败' })],
+            { type: 'application/json' },
+          ),
+          status: 404,
+          statusText: 'Not Found',
+          headers: new AxiosHeaders(),
+          config,
+        },
+      )
+    })
+
+    const wrapper = mount(ReviewWorkbench)
+    await flushPromises()
+    await flushPromises()
+    await flushPromises()
+    const preview = wrapper.get('[data-preview]')
+
+    expect(preview.text()).not.toContain('正在读取原票')
+    expect(preview.get('[aria-live="assertive"]').text()).toContain('原票读取失败')
+  })
+
+  it('removes a closed narrow queue from tab order and restores it when opened', async () => {
+    const previous = window.matchMedia
+    window.matchMedia = ((query: string) => ({
+      matches: query.includes('1099'),
+      media: query,
+      onchange: null,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+      dispatchEvent() {
+        return false
+      },
+    })) as typeof window.matchMedia
+
+    try {
+      install((config) => {
+        if ((config.url ?? '') === '/api/invoices') {
+          return jsonResponse(config, 200, [invoice()])
+        }
+        return fileResponse(config, 'image/jpeg', 'ticket.jpg')
+      })
+
+      const wrapper = mount(ReviewWorkbench, { attachTo: document.body })
+      try {
+        await flushPromises()
+        const toggle = wrapper.get('.queue-toggle')
+        const panel = wrapper.get('.workbench-queue')
+        const listbox = panel.get('[role="listbox"]').element as HTMLElement
+        const option = panel.get('.queue-item').element as HTMLElement
+
+        expect(listbox.closest('[inert]')).toBe(panel.element)
+        expect(option.closest('[inert]')).toBe(panel.element)
+        expect(toggle.attributes('aria-expanded')).toBe('false')
+        expect(toggle.attributes('aria-controls')).toBe(panel.attributes('id'))
+
+        await toggle.trigger('click')
+
+        expect(toggle.attributes('aria-expanded')).toBe('true')
+        expect(listbox.closest('[inert]')).toBeNull()
+        expect(option.closest('[inert]')).toBeNull()
+        listbox.focus()
+        expect(document.activeElement).toBe(listbox)
+      } finally {
+        wrapper.unmount()
+      }
+    } finally {
+      window.matchMedia = previous
+    }
+  })
+
+  it('keeps the desktop queue focusable while the drawer is closed', async () => {
+    const previous = window.matchMedia
+    window.matchMedia = ((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+      dispatchEvent() {
+        return false
+      },
+    })) as typeof window.matchMedia
+
+    try {
+      install((config) => {
+        if ((config.url ?? '') === '/api/invoices') {
+          return jsonResponse(config, 200, [invoice()])
+        }
+        return fileResponse(config, 'image/jpeg', 'ticket.jpg')
+      })
+
+      const wrapper = mount(ReviewWorkbench, { attachTo: document.body })
+      try {
+        await flushPromises()
+        const listbox = wrapper.get('[role="listbox"]').element as HTMLElement
+
+        expect(listbox.closest('[inert]')).toBeNull()
+        listbox.focus()
+        expect(document.activeElement).toBe(listbox)
+      } finally {
+        wrapper.unmount()
+      }
+    } finally {
+      window.matchMedia = previous
+    }
   })
 })

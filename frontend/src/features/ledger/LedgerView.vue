@@ -13,6 +13,7 @@ const dateTo = ref('')
 const rows = ref<InvoiceRecord[]>([])
 const state = ref<'loading' | 'empty' | 'error' | 'ready'>('loading')
 const liveMessage = ref('')
+let requestSerial = 0
 
 const query = computed(() => {
   const params = new URLSearchParams()
@@ -49,13 +50,20 @@ function requestParams(): Record<string, string> {
 }
 
 async function load() {
+  const serial = ++requestSerial
   state.value = 'loading'
   liveMessage.value = ''
   try {
     const { data } = await api.get<InvoiceRecord[]>('/api/ledger', { params: requestParams() })
+    if (serial !== requestSerial) {
+      return
+    }
     rows.value = data.filter((row) => row.status === 'PASSED')
     state.value = rows.value.length === 0 ? 'empty' : 'ready'
   } catch (error) {
+    if (serial !== requestSerial) {
+      return
+    }
     rows.value = []
     state.value = 'error'
     liveMessage.value = readApiError(error).message

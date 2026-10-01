@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { onUnmounted, ref, watch } from 'vue'
 
-import { api } from '../../lib/api'
+import { api, readApiError } from '../../lib/api'
 
 const props = defineProps<{
   invoiceId: string
 }>()
 
-const kind = ref<'image' | 'file' | ''>('')
+const kind = ref<'image' | 'file' | 'error' | ''>('')
 const objectUrl = ref('')
 const filename = ref('票据文件')
+const errorMessage = ref('')
 let objectToRevoke = ''
 let requestSerial = 0
 
@@ -47,6 +48,38 @@ function filenameFrom(disposition: string): string {
   return plain?.[1]?.trim() ?? ''
 }
 
+function readBlobText(blob: Blob): Promise<string> {
+  if (typeof blob.text === 'function') {
+    return blob.text()
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+    reader.onerror = () => reject(reader.error)
+    reader.readAsText(blob)
+  })
+}
+
+async function readPreviewError(error: unknown): Promise<string> {
+  const data = error && typeof error === 'object' && 'response' in error
+    ? (error as { response?: { data?: unknown } }).response?.data
+    : undefined
+  if (data instanceof Blob) {
+    try {
+      const parsed: unknown = JSON.parse(await readBlobText(data))
+      if (parsed && typeof parsed === 'object') {
+        return readApiError({
+          isAxiosError: true,
+          response: { data: parsed },
+        }).message
+      }
+    } catch {
+      // The blob was not a JSON error body. Use the existing fallback copy.
+    }
+  }
+  return readApiError(error).message
+}
+
 function revoke() {
   if (objectToRevoke) {
     URL.revokeObjectURL(objectToRevoke)
@@ -58,6 +91,7 @@ function revoke() {
 async function load(id: string) {
   const serial = ++requestSerial
   kind.value = ''
+  errorMessage.value = ''
   try {
     const response = await api.get<Blob>(`/api/invoices/${id}/file`, { responseType: 'blob' })
     if (serial !== requestSerial) {
@@ -75,13 +109,18 @@ async function load(id: string) {
       return
     }
     kind.value = 'file'
-  } catch {
+  } catch (error) {
     if (serial !== requestSerial) {
       return
     }
     revoke()
-    kind.value = ''
+    const message = await readPreviewError(error)
+    if (serial !== requestSerial) {
+      return
+    }
+    kind.value = 'error'
     filename.value = '票据文件'
+    errorMessage.value = message
   }
 }
 
@@ -104,6 +143,7 @@ onUnmounted(() => {
     <p v-else-if="kind === 'file'">
       <a :href="`/api/invoices/${invoiceId}/file`">{{ filename }}</a>
     </p>
+    <p v-else-if="kind === 'error'" class="preview-error" aria-live="assertive">{{ errorMessage }}</p>
     <p v-else class="muted">正在读取原票</p>
   </section>
 </template>

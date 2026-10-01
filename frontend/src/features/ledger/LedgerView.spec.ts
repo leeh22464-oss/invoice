@@ -147,4 +147,33 @@ describe('LedgerView', () => {
     expect(failed.text()).not.toContain('正在加载台账')
     expect(failed.text()).not.toContain('暂无已通过票据')
   })
+
+  it('keeps the newer ledger rows when an older filter response arrives later', async () => {
+    const pending: Array<(response: AxiosResponse) => void> = []
+    api.defaults.adapter = () => new Promise((resolve) => {
+      pending.push((response) => resolve(response))
+    })
+
+    const wrapper = mount(LedgerView)
+    await flushPromises()
+    await wrapper.get('input[name="invoiceNumber"]').setValue('old')
+    await flushPromises()
+    await wrapper.get('input[name="invoiceNumber"]').setValue('new')
+    await flushPromises()
+
+    expect(pending).toHaveLength(3)
+    const older = pending.length - 2
+    const newer = pending.length - 1
+    pending[newer](jsonResponse({} as InternalAxiosRequestConfig, 200, [
+      row({ id: 'led-new', invoiceNumber: 'KEEP-NEW' }),
+    ]))
+    await flushPromises()
+    pending[older](jsonResponse({} as InternalAxiosRequestConfig, 200, [
+      row({ id: 'led-old', invoiceNumber: 'STALE-OLD' }),
+    ]))
+    await flushPromises()
+
+    expect(wrapper.get('[data-state="ready"]').text()).toContain('KEEP-NEW')
+    expect(wrapper.text()).not.toContain('STALE-OLD')
+  })
 })

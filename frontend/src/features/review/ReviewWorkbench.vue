@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 
 import { api, readApiError } from '../../lib/api'
 import DuplicateEvidence from './DuplicateEvidence.vue'
@@ -13,8 +13,24 @@ const invoices = ref<InvoiceRecord[]>([])
 const selectedIndex = ref(0)
 const liveMessage = ref('')
 const queueOpen = ref(false)
+const narrowQuery = '(max-width: 1099px)'
+const narrowMedia = typeof window.matchMedia === 'function' ? window.matchMedia(narrowQuery) : null
+const narrow = ref(narrowMedia?.matches ?? false)
+
+function onNarrowChange(event: MediaQueryListEvent) {
+  narrow.value = event.matches
+}
+
+if (narrowMedia) {
+  narrowMedia.addEventListener('change', onNarrowChange)
+}
+
+onUnmounted(() => {
+  narrowMedia?.removeEventListener('change', onNarrowChange)
+})
 
 const selected = computed(() => invoices.value[selectedIndex.value])
+const queueInert = computed(() => narrow.value && !queueOpen.value)
 
 function replace(next: InvoiceRecord) {
   const index = invoices.value.findIndex((item) => item.id === next.id)
@@ -83,9 +99,22 @@ async function retry() {
 
 <template>
   <div class="workbench-wrap">
-    <button class="button-quiet queue-toggle" type="button" @click="queueOpen = !queueOpen">队列</button>
+    <button
+      class="button-quiet queue-toggle"
+      type="button"
+      aria-controls="review-queue"
+      :aria-expanded="queueOpen"
+      @click="queueOpen = !queueOpen"
+    >
+      队列
+    </button>
     <section class="workbench">
-      <div class="workbench-queue card" :class="{ 'is-open': queueOpen }">
+      <div
+        id="review-queue"
+        class="workbench-queue card"
+        :class="{ 'is-open': queueOpen }"
+        :inert="queueInert ? true : undefined"
+      >
         <ReviewQueue :invoices="invoices" :selected-index="selectedIndex" @select="select" />
       </div>
       <template v-if="selected">

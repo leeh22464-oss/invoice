@@ -402,10 +402,12 @@ select {
     margin: 0;
     overflow: auto;
     transform: translateX(-110%);
+    visibility: hidden;
   }
 
   .workbench-queue.is-open {
     transform: translateX(0);
+    visibility: visible;
   }
 
   .workbench-preview {
