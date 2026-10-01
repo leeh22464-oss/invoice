@@ -14,10 +14,14 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @RestController
 @RequestMapping("/api/import-batches")
@@ -26,6 +30,7 @@ public class ImportController {
 
     private final ImportService service;
     private final CurrentUser currentUser;
+    private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
 
     public ImportController(ImportService service, CurrentUser currentUser) {
         this.service = service;
@@ -42,6 +47,24 @@ public class ImportController {
     @GetMapping("/{id}")
     ImportBatchView get(@PathVariable UUID id) {
         return service.get(currentUser.requireId(), id);
+    }
+
+    @GetMapping(path = "/{id}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    SseEmitter events(@PathVariable UUID id) {
+        UUID userId = currentUser.requireId();
+        BatchProgressEvent progress = service.progress(userId, id);
+        SseEmitter emitter = new SseEmitter(30_000L);
+        sseExecutor.execute(() -> {
+            try {
+                emitter.send(SseEmitter.event()
+                        .name("progress")
+                        .data(progress));
+                emitter.complete();
+            } catch (IOException | RuntimeException exception) {
+                emitter.completeWithError(exception);
+            }
+        });
+        return emitter;
     }
 
     @GetMapping("/{batchId}/files/{fileId}/content")

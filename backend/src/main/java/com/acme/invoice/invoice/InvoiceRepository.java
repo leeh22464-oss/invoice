@@ -12,6 +12,10 @@ public interface InvoiceRepository extends JpaRepository<Invoice, UUID> {
 
     Optional<Invoice> findByIdAndUserId(UUID id, UUID userId);
 
+    List<Invoice> findByUserIdOrderByCreatedAtDesc(UUID userId);
+
+    List<Invoice> findByUserIdAndStatusOrderByCreatedAtDesc(UUID userId, InvoiceStatus status);
+
     @Query("""
             select i from Invoice i
             where i.userId = :userId

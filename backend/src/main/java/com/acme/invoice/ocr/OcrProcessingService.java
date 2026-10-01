@@ -2,9 +2,11 @@ package com.acme.invoice.ocr;
 
 import com.acme.invoice.credential.OcrCredentialService;
 import com.acme.invoice.credential.PaddleCredential;
+import com.acme.invoice.deduplication.DeduplicationService;
 import com.acme.invoice.ingestion.FileStorage;
 import com.acme.invoice.ingestion.InvoiceFile;
 import com.acme.invoice.ingestion.InvoiceFileRepository;
+import com.acme.invoice.invoice.Invoice;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.context.annotation.Profile;
@@ -35,6 +37,7 @@ public class OcrProcessingService {
     private final OcrResultRepository ocrResultRepository;
     private final NormalizedInvoiceRepository normalizedInvoiceRepository;
     private final InvoiceFileRepository invoiceFileRepository;
+    private final DeduplicationService deduplicationService;
     private final StoredFileContentHolder contentHolder;
     private final Clock clock;
     private final TransactionTemplate requiredTx;
@@ -48,6 +51,7 @@ public class OcrProcessingService {
             OcrResultRepository ocrResultRepository,
             NormalizedInvoiceRepository normalizedInvoiceRepository,
             InvoiceFileRepository invoiceFileRepository,
+            DeduplicationService deduplicationService,
             StoredFileContentHolder contentHolder,
             Clock clock,
             PlatformTransactionManager transactionManager) {
@@ -58,6 +62,7 @@ public class OcrProcessingService {
         this.ocrResultRepository = ocrResultRepository;
         this.normalizedInvoiceRepository = normalizedInvoiceRepository;
         this.invoiceFileRepository = invoiceFileRepository;
+        this.deduplicationService = deduplicationService;
         this.contentHolder = contentHolder;
         this.clock = clock;
         this.requiredTx = new TransactionTemplate(transactionManager);
@@ -113,8 +118,9 @@ public class OcrProcessingService {
                     document.providerRequestId(),
                     document.rawJson(),
                     now));
+            UUID normalizedId = UUID.randomUUID();
             normalizedInvoiceRepository.save(new NormalizedInvoiceEntity(
-                    UUID.randomUUID(),
+                    normalizedId,
                     userId,
                     file.getId(),
                     normalized.type(),
@@ -127,7 +133,12 @@ public class OcrProcessingService {
                     fieldsJson(normalized),
                     now));
 
-            file.markStatus("REVIEW_REQUIRED", clock.instant());
+            Invoice invoice = Invoice.fromNormalized(
+                    UUID.randomUUID(), userId, normalized, clock.instant());
+            invoice.linkSources(file.getId(), normalizedId);
+            deduplicationService.evaluate(userId, invoice);
+
+            file.markStatus(invoice.getStatus().name(), clock.instant());
             invoiceFileRepository.save(file);
         } catch (IOException exception) {
             throw new PaddleServiceUnavailableException();

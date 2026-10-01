@@ -144,6 +144,53 @@ public class Invoice {
                 now);
     }
 
+    public void linkSources(UUID invoiceFileId, UUID normalizedInvoiceId) {
+        this.invoiceFileId = invoiceFileId;
+        this.normalizedInvoiceId = normalizedInvoiceId;
+    }
+
+    public String readFieldValue(String fieldName) {
+        return switch (fieldName) {
+            case "invoiceCode" -> invoiceCode;
+            case "invoiceNumber" -> invoiceNumber;
+            case "invoiceDate" -> invoiceDate == null ? null : invoiceDate.toString();
+            case "amount" -> amount == null ? null : amount.toPlainString();
+            case "tax" -> tax == null ? null : tax.toPlainString();
+            case "total" -> total == null ? null : total.toPlainString();
+            default -> {
+                NormalizedField field = fields == null ? null : fields.get(fieldName);
+                yield field == null ? null : field.sourceText();
+            }
+        };
+    }
+
+    public void applyFieldCorrection(String fieldName, String newValue, Instant now) {
+        switch (fieldName) {
+            case "invoiceCode" -> this.invoiceCode = blankToNull(newValue);
+            case "invoiceNumber" -> this.invoiceNumber = blankToNull(newValue);
+            case "invoiceDate" -> this.invoiceDate =
+                    blankToNull(newValue) == null ? null : LocalDate.parse(newValue);
+            case "amount" -> this.amount = parseDecimal(newValue);
+            case "tax" -> this.tax = parseDecimal(newValue);
+            case "total" -> this.total = parseDecimal(newValue);
+            default -> {
+                Map<String, NormalizedField> mutable = new LinkedHashMap<>(
+                        fields == null ? Map.of() : fields);
+                if (blankToNull(newValue) == null) {
+                    mutable.remove(fieldName);
+                } else {
+                    BigDecimal confidence = mutable.containsKey(fieldName)
+                            ? mutable.get(fieldName).confidence()
+                            : BigDecimal.ONE;
+                    mutable.put(fieldName, new NormalizedField(newValue, confidence));
+                }
+                this.fields = Map.copyOf(mutable);
+                this.fieldsJson = serializeFields(this.fields);
+            }
+        }
+        this.updatedAt = now;
+    }
+
     public static Invoice rehydrate(
             UUID id,
             UUID userId,
@@ -220,6 +267,14 @@ public class Invoice {
         return userId;
     }
 
+    public UUID getInvoiceFileId() {
+        return invoiceFileId;
+    }
+
+    public UUID getNormalizedInvoiceId() {
+        return normalizedInvoiceId;
+    }
+
     public InvoiceType getInvoiceType() {
         return invoiceType;
     }
@@ -285,6 +340,15 @@ public class Invoice {
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Unable to serialize invoice fields", exception);
         }
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
+    }
+
+    private static BigDecimal parseDecimal(String value) {
+        String normalized = blankToNull(value);
+        return normalized == null ? null : new BigDecimal(normalized);
     }
 
     private static Map<String, NormalizedField> parseFields(String json) {

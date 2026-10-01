@@ -15,7 +15,9 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @Profile("!smoke")
@@ -128,6 +130,16 @@ public class ImportService {
         return batchRepository.findByIdAndUserId(batchId, userId)
                 .map(ImportBatchView::from)
                 .orElseThrow(this::notFound);
+    }
+
+    @Transactional(readOnly = true)
+    public BatchProgressEvent progress(UUID userId, UUID batchId) {
+        ImportBatch batch = batchRepository.findByIdAndUserId(batchId, userId)
+                .orElseThrow(this::notFound);
+        Map<String, Long> statusCounts = fileRepository.findByBatchIdAndUserId(batchId, userId)
+                .stream()
+                .collect(Collectors.groupingBy(InvoiceFile::getStatus, Collectors.counting()));
+        return new BatchProgressEvent(batch.getTotalFiles(), batch.getStatus(), statusCounts);
     }
 
     @Transactional(readOnly = true)

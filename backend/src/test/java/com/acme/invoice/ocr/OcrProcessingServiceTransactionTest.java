@@ -14,10 +14,12 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.io.ByteArrayInputStream;
+import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Base64;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -71,6 +73,11 @@ class OcrProcessingServiceTransactionTest {
 
     @BeforeEach
     void clean() {
+        jdbc.update("delete from erp_push_receipts");
+        jdbc.update("delete from audit_events");
+        jdbc.update("delete from duplicate_matches");
+        jdbc.update("delete from verification_issues");
+        jdbc.update("delete from invoices");
         jdbc.update("delete from normalized_invoices");
         jdbc.update("delete from ocr_results");
         jdbc.update("delete from invoice_files");
@@ -115,6 +122,66 @@ class OcrProcessingServiceTransactionTest {
 
         assertThat(fileStatus(failingId)).isEqualTo("FAILED");
         assertThat(fileStatus(siblingId)).isEqualTo("QUEUED");
+    }
+
+    @Test
+    void successfulOcrRunsVerificationAndDeduplicationBeforeReview() {
+        UUID userId = UUID.randomUUID();
+        UUID batchId = UUID.randomUUID();
+        UUID fileId = UUID.randomUUID();
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+
+        jdbc.update("""
+                        insert into users(id, email, password_hash, status, created_at)
+                        values (?, ?, ?, 'ACTIVE', ?)
+                        """,
+                userId,
+                "ocr-pass@example.com",
+                "$2a$10$01234567890123456789012345678901234567890123456789012",
+                now);
+        jdbc.update("""
+                        insert into import_batches(
+                            id, user_id, batch_number, status, total_files, created_at, updated_at)
+                        values (?, ?, 'B-OCR-PASS', 'QUEUED', 1, ?, ?)
+                        """,
+                batchId, userId, now, now);
+        insertFile(fileId, userId, batchId, "ok.png", "key-ok-pass", now);
+
+        when(credentialService.decryptForUser(userId))
+                .thenReturn(new PaddleCredential("api-key", "secret-key"));
+        when(storage.open(eq(userId), any()))
+                .thenReturn(new ByteArrayInputStream(new byte[]{1, 2, 3}));
+        when(ocrProvider.recognize(any(), any())).thenReturn(new OcrDocument(
+                "req-pass",
+                "RAW_OCR_SECRET_JSON",
+                List.of(
+                        new OcrField("InvoiceType", "增值税专用发票", new BigDecimal("0.99")),
+                        new OcrField("InvoiceCode", "033001900111", new BigDecimal("0.99")),
+                        new OcrField("InvoiceNum", "00123456", new BigDecimal("0.99")),
+                        new OcrField("InvoiceDate", "2024-01-15", new BigDecimal("0.99")),
+                        new OcrField("TotalAmount", "100.00", new BigDecimal("0.99")),
+                        new OcrField("TotalTax", "13.00", new BigDecimal("0.99")),
+                        new OcrField("AmountInFiguers", "113.00", new BigDecimal("0.99")))));
+
+        service.processFile(userId, fileId);
+
+        assertThat(fileStatus(fileId)).isEqualTo("PASSED");
+        String invoiceStatus = jdbc.queryForObject(
+                "select status from invoices where user_id = ? and invoice_file_id = ?",
+                String.class,
+                userId,
+                fileId);
+        assertThat(invoiceStatus).isEqualTo("PASSED");
+        String rawJson = jdbc.queryForObject(
+                "select raw_json from ocr_results where invoice_file_id = ?",
+                String.class,
+                fileId);
+        assertThat(rawJson).isEqualTo("RAW_OCR_SECRET_JSON");
+        String fieldsJson = jdbc.queryForObject(
+                "select fields_json from invoices where invoice_file_id = ?",
+                String.class,
+                fileId);
+        assertThat(fieldsJson).doesNotContain("RAW_OCR_SECRET_JSON");
     }
 
     private void insertFile(

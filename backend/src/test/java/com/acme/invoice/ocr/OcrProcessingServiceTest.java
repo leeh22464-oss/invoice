@@ -6,10 +6,14 @@ import com.acme.invoice.credential.OcrCredentialPersistence;
 import com.acme.invoice.credential.OcrCredentialService;
 import com.acme.invoice.credential.PaddleCredential;
 import com.acme.invoice.credential.SecretCipher;
+import com.acme.invoice.deduplication.DeduplicationResult;
+import com.acme.invoice.deduplication.DeduplicationService;
 import com.acme.invoice.ingestion.FileStorage;
 import com.acme.invoice.ingestion.InvoiceFile;
 import com.acme.invoice.ingestion.InvoiceFileRepository;
 import com.acme.invoice.ingestion.StoredFile;
+import com.acme.invoice.invoice.Invoice;
+import com.acme.invoice.invoice.InvoiceStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -49,6 +53,7 @@ class OcrProcessingServiceTest {
     private OcrResultRepository ocrResultRepository;
     private NormalizedInvoiceRepository normalizedInvoiceRepository;
     private InvoiceFileRepository invoiceFileRepository;
+    private DeduplicationService deduplicationService;
     private OcrProcessingService service;
 
     @BeforeEach
@@ -63,6 +68,12 @@ class OcrProcessingServiceTest {
         ocrResultRepository = mock(OcrResultRepository.class);
         normalizedInvoiceRepository = mock(NormalizedInvoiceRepository.class);
         invoiceFileRepository = mock(InvoiceFileRepository.class);
+        deduplicationService = mock(DeduplicationService.class);
+        when(deduplicationService.evaluate(eq(userId), any(Invoice.class))).thenAnswer(invocation -> {
+            Invoice invoice = invocation.getArgument(1);
+            invoice.markStatus(InvoiceStatus.REVIEW_REQUIRED, clock.instant());
+            return new DeduplicationResult(false, null, null);
+        });
         service = new OcrProcessingService(
                 credentialService,
                 storage,
@@ -71,6 +82,7 @@ class OcrProcessingServiceTest {
                 ocrResultRepository,
                 normalizedInvoiceRepository,
                 invoiceFileRepository,
+                deduplicationService,
                 null,
                 clock,
                 passthroughTransactionManager());
@@ -160,6 +172,9 @@ class OcrProcessingServiceTest {
                         && row.getInvoiceFileId().equals(ok.getId())
                         && row.getInvoiceType() == InvoiceType.VAT_SPECIAL
                         && "001".equals(row.getInvoiceNumber())));
+        verify(deduplicationService).evaluate(eq(userId), argThat(invoice ->
+                invoice.getInvoiceFileId().equals(ok.getId())
+                        && invoice.getUserId().equals(userId)));
         verify(invoiceFileRepository, atLeastOnce()).save(argThat(file ->
                 file.getId().equals(ok.getId())
                         && "REVIEW_REQUIRED".equals(file.getStatus())));
@@ -168,6 +183,8 @@ class OcrProcessingServiceTest {
                         && "FAILED".equals(file.getStatus())));
         verify(normalizedInvoiceRepository, never()).save(argThat(row ->
                 row.getInvoiceFileId().equals(bad.getId())));
+        verify(deduplicationService, never()).evaluate(eq(userId), argThat(invoice ->
+                invoice.getInvoiceFileId().equals(bad.getId())));
     }
 
     private void stubCredential() {

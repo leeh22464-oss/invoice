@@ -17,6 +17,7 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockMultipartHttpServletRequestBuilder;
 import org.testcontainers.containers.PostgreSQLContainer;
 
@@ -30,6 +31,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -262,6 +264,77 @@ class ImportControllerTest {
         try (var paths = Files.walk(STORAGE_ROOT)) {
             assertThat(paths.filter(Files::isRegularFile)).isEmpty();
         }
+    }
+
+    @Test
+    void batchEventsEmitTotalsAndStatusesWithoutCredentialsOrRawOcr() throws Exception {
+        Cookie owner = register("sse-owner@example.com");
+        UUID userId = jdbc.queryForObject(
+                "select id from users where email = ?",
+                UUID.class,
+                "sse-owner@example.com");
+        mvc.perform(multipart("/api/import-batches")
+                        .file(png("invoice.png"))
+                        .with(csrf())
+                        .cookie(owner))
+                .andExpect(status().isCreated());
+        UUID batchId = jdbc.queryForObject(
+                "select id from import_batches where user_id = ?", UUID.class, userId);
+        UUID fileId = jdbc.queryForObject(
+                "select id from invoice_files where batch_id = ?", UUID.class, batchId);
+        jdbc.update(
+                """
+                insert into ocr_results(
+                    id, user_id, invoice_file_id, provider_request_id, raw_json, created_at)
+                values (?, ?, ?, 'req-secret', 'RAW_OCR_SECRET_JSON', now())
+                """,
+                UUID.randomUUID(), userId, fileId);
+        jdbc.update(
+                """
+                insert into ocr_credentials(
+                    id, user_id, api_key_iv, api_key_ciphertext, secret_key_iv,
+                    secret_key_ciphertext, api_key_mask, validation_status, created_at, updated_at)
+                values (?, ?, ?, ?, ?, ?, 'SECRET-API-MASK', 'VALID', now(), now())
+                """,
+                UUID.randomUUID(),
+                userId,
+                new byte[]{1},
+                new byte[]{2},
+                new byte[]{3},
+                new byte[]{4});
+
+        MvcResult async = mvc.perform(get("/api/import-batches/{id}/events", batchId).cookie(owner))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+        String body = mvc.perform(asyncDispatch(async))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        assertThat(body).contains("totalFiles").contains("QUEUED");
+        assertThat(body).doesNotContain("RAW_OCR_SECRET_JSON");
+        assertThat(body).doesNotContain("SECRET-API-MASK");
+        assertThat(body).doesNotContain("api_key");
+        assertThat(body).doesNotContain("raw_json");
+    }
+
+    @Test
+    void crossUserBatchEventsReturn404() throws Exception {
+        Cookie owner = register("sse-owner-404@example.com");
+        Cookie other = register("sse-other-404@example.com");
+        mvc.perform(multipart("/api/import-batches")
+                        .file(png("invoice.png"))
+                        .with(csrf())
+                        .cookie(owner))
+                .andExpect(status().isCreated());
+        UUID batchId = jdbc.queryForObject(
+                "select id from import_batches where user_id = (select id from users where email = ?)",
+                UUID.class,
+                "sse-owner-404@example.com");
+
+        mvc.perform(get("/api/import-batches/{id}/events", batchId).cookie(other))
+                .andExpect(status().isNotFound());
     }
 
     @Test
