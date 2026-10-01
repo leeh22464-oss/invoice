@@ -172,6 +172,48 @@ class InvoiceReviewControllerTest {
     }
 
     @Test
+    void evaluationFailureAfterCorrectionKeepsBlockedDuplicate() throws Exception {
+        Cookie token = register("review-blocked@example.com");
+        UUID userId = userId("review-blocked@example.com");
+        UUID invoiceId = seedInvoice(
+                userId,
+                "VAT_SPECIAL",
+                "033001900111",
+                "00000001",
+                LocalDate.of(2024, 1, 15),
+                new BigDecimal("100.00"),
+                new BigDecimal("13.00"),
+                new BigDecimal("113.00"),
+                "BLOCKED_DUPLICATE",
+                "VAT_SPECIAL|033001900111|00000001");
+        doThrow(new IllegalStateException("verification failed"))
+                .when(deduplicationService)
+                .evaluate(any(), any());
+        try {
+            assertThatThrownBy(() -> mvc.perform(patch("/api/invoices/{id}", invoiceId)
+                            .with(csrf())
+                            .cookie(token)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"fields\":{\"invoiceNumber\":\"00123456\"}}")))
+                    .isInstanceOf(ServletException.class)
+                    .cause()
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessage("verification failed");
+        } finally {
+            reset(deduplicationService);
+        }
+
+        assertThat(jdbc.queryForObject(
+                "select invoice_number from invoices where id = ?",
+                String.class,
+                invoiceId)).isEqualTo("00123456");
+        assertThat(jdbc.queryForObject(
+                "select status from invoices where id = ?",
+                String.class,
+                invoiceId)).isEqualTo("BLOCKED_DUPLICATE");
+    }
+
+    @Test
     void definiteDuplicateCannotBeForcedToPassed() throws Exception {
         Cookie token = register("dup-owner@example.com");
         UUID userId = userId("dup-owner@example.com");

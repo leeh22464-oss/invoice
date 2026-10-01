@@ -104,8 +104,10 @@ public class InvoiceReviewService {
             } catch (RuntimeException exception) {
                 requiresNewTx.executeWithoutResult(status -> {
                     Invoice invoice = requireOwned(userId, invoiceId);
-                    invoice.markStatus(InvoiceStatus.REVIEW_REQUIRED, clock.instant());
-                    invoices.save(invoice);
+                    if (invoice.getStatus() != InvoiceStatus.BLOCKED_DUPLICATE) {
+                        invoice.markStatus(InvoiceStatus.REVIEW_REQUIRED, clock.instant());
+                        invoices.save(invoice);
+                    }
                 });
                 throw exception;
             }
