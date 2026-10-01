@@ -130,4 +130,23 @@ public class NormalizedInvoiceEntity {
     public Instant getCreatedAt() {
         return createdAt;
     }
+
+    public void replace(
+            InvoiceType invoiceType,
+            String invoiceCode,
+            String invoiceNumber,
+            LocalDate invoiceDate,
+            BigDecimal amount,
+            BigDecimal tax,
+            BigDecimal total,
+            String fieldsJson) {
+        this.invoiceType = invoiceType;
+        this.invoiceCode = invoiceCode;
+        this.invoiceNumber = invoiceNumber;
+        this.invoiceDate = invoiceDate;
+        this.amount = amount;
+        this.tax = tax;
+        this.total = total;
+        this.fieldsJson = fieldsJson;
+    }
 }

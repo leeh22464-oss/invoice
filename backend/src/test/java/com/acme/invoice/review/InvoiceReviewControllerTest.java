@@ -1,5 +1,7 @@
 package com.acme.invoice.review;
 
+import com.acme.invoice.deduplication.DeduplicationService;
+import jakarta.servlet.ServletException;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -10,6 +12,7 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 
@@ -23,6 +26,10 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.reset;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -56,6 +63,9 @@ class InvoiceReviewControllerTest {
 
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
+
+    @MockitoSpyBean
+    DeduplicationService deduplicationService;
 
     @BeforeEach
     void clean() {
@@ -110,6 +120,55 @@ class InvoiceReviewControllerTest {
             assertThat(row.get("old_value")).isEqualTo("BAD");
             assertThat(row.get("new_value")).isEqualTo("00123456");
         });
+    }
+
+    @Test
+    void evaluationFailureAfterCorrectionDemotesStalePassedStatus() throws Exception {
+        Cookie token = register("review-compensate@example.com");
+        UUID userId = userId("review-compensate@example.com");
+        UUID invoiceId = seedInvoice(
+                userId,
+                "VAT_SPECIAL",
+                "033001900111",
+                "00000001",
+                LocalDate.of(2024, 1, 15),
+                new BigDecimal("100.00"),
+                new BigDecimal("13.00"),
+                new BigDecimal("113.00"),
+                "PASSED",
+                "VAT_SPECIAL|033001900111|00000001");
+        doThrow(new IllegalStateException("verification failed"))
+                .when(deduplicationService)
+                .evaluate(any(), any());
+        try {
+            assertThatThrownBy(() -> mvc.perform(patch("/api/invoices/{id}", invoiceId)
+                            .with(csrf())
+                            .cookie(token)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"fields\":{\"invoiceNumber\":\"00123456\"}}")))
+                    .isInstanceOf(ServletException.class)
+                    .cause()
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessage("verification failed");
+        } finally {
+            reset(deduplicationService);
+        }
+
+        assertThat(jdbc.queryForObject(
+                "select invoice_number from invoices where id = ?",
+                String.class,
+                invoiceId)).isEqualTo("00123456");
+        assertThat(jdbc.queryForObject(
+                "select status from invoices where id = ?",
+                String.class,
+                invoiceId)).isEqualTo("REVIEW_REQUIRED");
+        Long audits = jdbc.queryForObject(
+                "select count(*) from audit_events where user_id = ? and invoice_id = ? and field_name = ?",
+                Long.class,
+                userId,
+                invoiceId,
+                "invoiceNumber");
+        assertThat(audits).isEqualTo(1L);
     }
 
     @Test

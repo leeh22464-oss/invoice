@@ -71,4 +71,9 @@ public class OcrResult {
     public Instant getCreatedAt() {
         return createdAt;
     }
+
+    public void replace(String providerRequestId, String rawJson) {
+        this.providerRequestId = providerRequestId;
+        this.rawJson = rawJson;
+    }
 }

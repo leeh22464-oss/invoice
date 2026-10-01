@@ -7,8 +7,11 @@ import com.acme.invoice.ingestion.FileStorage;
 import com.acme.invoice.ingestion.InvoiceFile;
 import com.acme.invoice.ingestion.InvoiceFileRepository;
 import com.acme.invoice.invoice.Invoice;
+import com.acme.invoice.invoice.InvoiceRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -37,11 +40,15 @@ public class OcrProcessingService {
     private final OcrResultRepository ocrResultRepository;
     private final NormalizedInvoiceRepository normalizedInvoiceRepository;
     private final InvoiceFileRepository invoiceFileRepository;
+    private final InvoiceRepository invoiceRepository;
     private final DeduplicationService deduplicationService;
     private final StoredFileContentHolder contentHolder;
     private final Clock clock;
     private final TransactionTemplate requiredTx;
     private final TransactionTemplate requiresNewTx;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     public OcrProcessingService(
             OcrCredentialService credentialService,
@@ -51,6 +58,7 @@ public class OcrProcessingService {
             OcrResultRepository ocrResultRepository,
             NormalizedInvoiceRepository normalizedInvoiceRepository,
             InvoiceFileRepository invoiceFileRepository,
+            InvoiceRepository invoiceRepository,
             DeduplicationService deduplicationService,
             StoredFileContentHolder contentHolder,
             Clock clock,
@@ -62,6 +70,7 @@ public class OcrProcessingService {
         this.ocrResultRepository = ocrResultRepository;
         this.normalizedInvoiceRepository = normalizedInvoiceRepository;
         this.invoiceFileRepository = invoiceFileRepository;
+        this.invoiceRepository = invoiceRepository;
         this.deduplicationService = deduplicationService;
         this.contentHolder = contentHolder;
         this.clock = clock;
@@ -110,32 +119,69 @@ public class OcrProcessingService {
             }
             OcrDocument document = ocrProvider.recognize(credential, file.toStoredFile());
             NormalizedInvoice normalized = normalizer.normalize(document);
+            String serializedFields = fieldsJson(normalized);
 
-            ocrResultRepository.save(new OcrResult(
-                    UUID.randomUUID(),
-                    userId,
-                    file.getId(),
-                    document.providerRequestId(),
-                    document.rawJson(),
-                    now));
-            UUID normalizedId = UUID.randomUUID();
-            normalizedInvoiceRepository.save(new NormalizedInvoiceEntity(
-                    normalizedId,
-                    userId,
-                    file.getId(),
-                    normalized.type(),
-                    normalized.invoiceCode(),
-                    normalized.invoiceNumber(),
-                    normalized.invoiceDate(),
-                    normalized.amount(),
-                    normalized.tax(),
-                    normalized.total(),
-                    fieldsJson(normalized),
-                    now));
+            ocrResultRepository.findByInvoiceFileIdAndUserId(file.getId(), userId)
+                    .ifPresentOrElse(
+                            existing -> {
+                                existing.replace(document.providerRequestId(), document.rawJson());
+                                ocrResultRepository.save(existing);
+                            },
+                            () -> ocrResultRepository.save(new OcrResult(
+                                    UUID.randomUUID(),
+                                    userId,
+                                    file.getId(),
+                                    document.providerRequestId(),
+                                    document.rawJson(),
+                                    now)));
+            UUID normalizedId = normalizedInvoiceRepository
+                    .findByInvoiceFileIdAndUserId(file.getId(), userId)
+                    .map(existing -> {
+                        existing.replace(
+                                normalized.type(),
+                                normalized.invoiceCode(),
+                                normalized.invoiceNumber(),
+                                normalized.invoiceDate(),
+                                normalized.amount(),
+                                normalized.tax(),
+                                normalized.total(),
+                                serializedFields);
+                        normalizedInvoiceRepository.save(existing);
+                        return existing.getId();
+                    })
+                    .orElseGet(() -> {
+                        UUID createdId = UUID.randomUUID();
+                        normalizedInvoiceRepository.save(new NormalizedInvoiceEntity(
+                                createdId,
+                                userId,
+                                file.getId(),
+                                normalized.type(),
+                                normalized.invoiceCode(),
+                                normalized.invoiceNumber(),
+                                normalized.invoiceDate(),
+                                normalized.amount(),
+                                normalized.tax(),
+                                normalized.total(),
+                                serializedFields,
+                                now));
+                        return createdId;
+                    });
 
-            Invoice invoice = Invoice.fromNormalized(
-                    UUID.randomUUID(), userId, normalized, clock.instant());
-            invoice.linkSources(file.getId(), normalizedId);
+            Invoice invoice = invoiceRepository.findByUserIdAndInvoiceFileId(userId, file.getId())
+                    .map(existing -> {
+                        if (entityManager != null && entityManager.contains(existing)) {
+                            entityManager.detach(existing);
+                        }
+                        existing.replaceFromNormalized(normalized, now);
+                        existing.linkSources(file.getId(), normalizedId);
+                        return existing;
+                    })
+                    .orElseGet(() -> {
+                        Invoice created = Invoice.fromNormalized(
+                                UUID.randomUUID(), userId, normalized, clock.instant());
+                        created.linkSources(file.getId(), normalizedId);
+                        return created;
+                    });
             deduplicationService.evaluate(userId, invoice);
 
             file.markStatus(invoice.getStatus().name(), clock.instant());

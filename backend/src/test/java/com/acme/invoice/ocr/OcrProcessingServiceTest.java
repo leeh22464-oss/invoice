@@ -13,6 +13,7 @@ import com.acme.invoice.ingestion.InvoiceFile;
 import com.acme.invoice.ingestion.InvoiceFileRepository;
 import com.acme.invoice.ingestion.StoredFile;
 import com.acme.invoice.invoice.Invoice;
+import com.acme.invoice.invoice.InvoiceRepository;
 import com.acme.invoice.invoice.InvoiceStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -82,6 +83,7 @@ class OcrProcessingServiceTest {
                 ocrResultRepository,
                 normalizedInvoiceRepository,
                 invoiceFileRepository,
+                mock(InvoiceRepository.class),
                 deduplicationService,
                 null,
                 clock,

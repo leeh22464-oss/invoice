@@ -3,6 +3,8 @@ package com.acme.invoice.ocr;
 import com.acme.invoice.credential.OcrCredentialService;
 import com.acme.invoice.credential.PaddleCredential;
 import com.acme.invoice.ingestion.FileStorage;
+import com.acme.invoice.review.InvoiceReviewService;
+import com.acme.invoice.review.InvoiceView;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -58,6 +60,9 @@ class OcrProcessingServiceTransactionTest {
 
     @Autowired
     OcrProcessingService service;
+
+    @Autowired
+    InvoiceReviewService reviewService;
 
     @Autowired
     JdbcTemplate jdbc;
@@ -184,6 +189,62 @@ class OcrProcessingServiceTransactionTest {
         assertThat(fieldsJson).doesNotContain("RAW_OCR_SECRET_JSON");
     }
 
+    @Test
+    void retryReplacesExistingOcrResultAndUpdatesSameInvoice() {
+        UUID userId = UUID.randomUUID();
+        UUID batchId = UUID.randomUUID();
+        UUID fileId = UUID.randomUUID();
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+
+        jdbc.update("""
+                        insert into users(id, email, password_hash, status, created_at)
+                        values (?, ?, ?, 'ACTIVE', ?)
+                        """,
+                userId,
+                "ocr-retry@example.com",
+                "$2a$10$01234567890123456789012345678901234567890123456789012",
+                now);
+        jdbc.update("""
+                        insert into import_batches(
+                            id, user_id, batch_number, status, total_files, created_at, updated_at)
+                        values (?, ?, 'B-OCR-RETRY', 'QUEUED', 1, ?, ?)
+                        """,
+                batchId, userId, now, now);
+        insertFile(fileId, userId, batchId, "retry.png", "key-retry", now);
+
+        when(credentialService.decryptForUser(userId))
+                .thenReturn(new PaddleCredential("api-key", "secret-key"));
+        when(storage.open(eq(userId), any()))
+                .thenAnswer(invocation -> new ByteArrayInputStream(new byte[]{1, 2, 3}));
+        when(ocrProvider.recognize(any(), any()))
+                .thenReturn(vatDocument("00123456", "RAW_OCR_FIRST"))
+                .thenReturn(vatDocument("00999999", "RAW_OCR_RETRY"));
+
+        service.processFile(userId, fileId);
+        UUID invoiceId = jdbc.queryForObject(
+                "select id from invoices where user_id = ? and invoice_file_id = ?",
+                UUID.class,
+                userId,
+                fileId);
+
+        InvoiceView retried = reviewService.retry(userId, invoiceId);
+
+        assertThat(retried.id()).isEqualTo(invoiceId);
+        assertThat(retried.invoiceNumber()).isEqualTo("00999999");
+        assertThat(count("ocr_results", fileId)).isEqualTo(1L);
+        assertThat(count("normalized_invoices", fileId)).isEqualTo(1L);
+        assertThat(count("invoices", fileId)).isEqualTo(1L);
+        assertThat(fileStatus(fileId)).isNotEqualTo("FAILED");
+        assertThat(jdbc.queryForObject(
+                "select raw_json from ocr_results where invoice_file_id = ?",
+                String.class,
+                fileId)).isEqualTo("RAW_OCR_RETRY");
+        assertThat(jdbc.queryForObject(
+                "select invoice_number from normalized_invoices where invoice_file_id = ?",
+                String.class,
+                fileId)).isEqualTo("00999999");
+    }
+
     private void insertFile(
             UUID id,
             UUID userId,
@@ -205,6 +266,27 @@ class OcrProcessingServiceTransactionTest {
                 storageKey,
                 now,
                 now);
+    }
+
+    private static OcrDocument vatDocument(String invoiceNumber, String rawJson) {
+        return new OcrDocument(
+                "req-" + invoiceNumber,
+                rawJson,
+                List.of(
+                        new OcrField("InvoiceType", "增值税专用发票", new BigDecimal("0.99")),
+                        new OcrField("InvoiceCode", "033001900111", new BigDecimal("0.99")),
+                        new OcrField("InvoiceNum", invoiceNumber, new BigDecimal("0.99")),
+                        new OcrField("InvoiceDate", "2024-01-15", new BigDecimal("0.99")),
+                        new OcrField("TotalAmount", "100.00", new BigDecimal("0.99")),
+                        new OcrField("TotalTax", "13.00", new BigDecimal("0.99")),
+                        new OcrField("AmountInFiguers", "113.00", new BigDecimal("0.99"))));
+    }
+
+    private Long count(String table, UUID fileId) {
+        return jdbc.queryForObject(
+                "select count(*) from " + table + " where invoice_file_id = ?",
+                Long.class,
+                fileId);
     }
 
     private String fileStatus(UUID id) {

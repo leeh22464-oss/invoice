@@ -14,6 +14,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -35,6 +36,7 @@ public class InvoiceReviewService {
     private final OcrProcessingService ocrProcessingService;
     private final Clock clock;
     private final TransactionTemplate transactionTemplate;
+    private final TransactionTemplate requiresNewTx;
 
     public InvoiceReviewService(
             InvoiceRepository invoices,
@@ -53,6 +55,8 @@ public class InvoiceReviewService {
         this.ocrProcessingService = ocrProcessingService;
         this.clock = clock;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
+        this.requiresNewTx = new TransactionTemplate(transactionManager);
+        this.requiresNewTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     @Transactional(readOnly = true)
@@ -95,7 +99,16 @@ public class InvoiceReviewService {
             return true;
         }));
         if (rerun) {
-            deduplicationService.evaluate(userId, requireOwned(userId, invoiceId));
+            try {
+                deduplicationService.evaluate(userId, requireOwned(userId, invoiceId));
+            } catch (RuntimeException exception) {
+                requiresNewTx.executeWithoutResult(status -> {
+                    Invoice invoice = requireOwned(userId, invoiceId);
+                    invoice.markStatus(InvoiceStatus.REVIEW_REQUIRED, clock.instant());
+                    invoices.save(invoice);
+                });
+                throw exception;
+            }
         }
         return get(userId, invoiceId);
     }

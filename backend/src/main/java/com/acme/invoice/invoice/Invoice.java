@@ -149,6 +149,22 @@ public class Invoice {
         this.normalizedInvoiceId = normalizedInvoiceId;
     }
 
+    public void replaceFromNormalized(NormalizedInvoice normalized, Instant now) {
+        Map<String, NormalizedField> nextFields =
+                normalized.fields() == null ? Map.of() : Map.copyOf(normalized.fields());
+        this.invoiceType = normalized.type();
+        this.invoiceCode = normalized.invoiceCode();
+        this.invoiceNumber = normalized.invoiceNumber();
+        this.invoiceDate = normalized.invoiceDate();
+        this.amount = normalized.amount();
+        this.tax = normalized.tax();
+        this.total = normalized.total();
+        this.fields = nextFields;
+        this.fieldsJson = serializeFields(nextFields);
+        this.exactDuplicateKey = null;
+        this.updatedAt = now;
+    }
+
     public String readFieldValue(String fieldName) {
         return switch (fieldName) {
             case "invoiceCode" -> invoiceCode;
