@@ -31,7 +31,7 @@ app:
   jwt:
     secret: ${APP_JWT_SECRET:}
     ttl: ${APP_JWT_TTL:PT1H}
-    secure-cookie: ${APP_COOKIE_SECURE:true}
+    secure-cookie: ${APP_JWT_SECURE_COOKIE:${APP_COOKIE_SECURE:true}}
   credential:
     master-key: ${APP_CREDENTIAL_MASTER_KEY:}
   paddle:

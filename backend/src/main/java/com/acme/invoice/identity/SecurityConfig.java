@@ -1,5 +1,6 @@
 package com.acme.invoice.identity;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -13,6 +14,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfToken;
+import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 
 @Configuration
@@ -31,19 +33,25 @@ public class SecurityConfig {
             @Value("${app.jwt.secure-cookie:true}") boolean secureCookie) throws Exception {
         CookieCsrfTokenRepository csrfRepository = CookieCsrfTokenRepository.withHttpOnlyFalse();
         csrfRepository.setCookieCustomizer(cookie -> cookie
+                .httpOnly(false)
                 .path("/")
                 .sameSite("Lax")
                 .secure(secureCookie));
+        CsrfTokenRepository readableCsrfRepository = retainReadableCsrfCookie(csrfRepository);
 
         CsrfTokenRequestAttributeHandler csrfHandler = new CsrfTokenRequestAttributeHandler();
         csrfHandler.setCsrfRequestAttributeName("_csrf");
 
         return http
-                .sessionManagement(session ->
-                        session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .sessionManagement(session -> session
+                        .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .csrf(csrf -> csrf
-                        .csrfTokenRepository(csrfRepository)
-                        .csrfTokenRequestHandler(csrfHandler))
+                        .csrfTokenRepository(readableCsrfRepository)
+                        .csrfTokenRequestHandler(csrfHandler)
+                        .sessionAuthenticationStrategy((authentication, request, response) -> {
+                            // JWT is restored on every request. CsrfAuthenticationStrategy
+                            // treats that as a new login and deletes the readable XSRF cookie.
+                        }))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(
                                 "/api/auth/register",
@@ -69,5 +77,27 @@ public class SecurityConfig {
                         }))
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();
+    }
+
+    private static CsrfTokenRepository retainReadableCsrfCookie(CookieCsrfTokenRepository delegate) {
+        return new CsrfTokenRepository() {
+            @Override
+            public CsrfToken generateToken(HttpServletRequest request) {
+                return delegate.generateToken(request);
+            }
+
+            @Override
+            public void saveToken(CsrfToken token, HttpServletRequest request, HttpServletResponse response) {
+                if (token == null) {
+                    return;
+                }
+                delegate.saveToken(token, request, response);
+            }
+
+            @Override
+            public CsrfToken loadToken(HttpServletRequest request) {
+                return delegate.loadToken(request);
+            }
+        };
     }
 }

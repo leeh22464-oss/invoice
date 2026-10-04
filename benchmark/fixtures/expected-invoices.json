@@ -1,0 +1,226 @@
+{
+  "description": "Synthetic Baidu multiple_invoice responses. Every code, number, name, and amount is invented.",
+  "cases": [
+    {
+      "id": "vat-special-1",
+      "ocr": {"log_id": 2001, "words_result": [{"type": "vat_invoice", "probability": 0.99, "result": {
+        "InvoiceType": [{"word": "专用发票"}], "InvoiceCode": [{"word": "033001900111"}], "InvoiceNum": [{"word": "00123456"}],
+        "InvoiceDate": [{"word": "2024年01月15日"}], "TotalAmount": [{"word": "100.00"}], "TotalTax": [{"word": "13.00"}], "AmountInFiguers": [{"word": "113.00"}]}}]},
+      "expected": {"type": "VAT_SPECIAL", "invoiceCode": "033001900111", "invoiceNumber": "00123456", "invoiceDate": "2024-01-15", "amount": "100.00", "tax": "13.00", "total": "113.00"}
+    },
+    {
+      "id": "vat-special-2",
+      "ocr": {"log_id": 2002, "words_result": [{"type": "vat_invoice", "probability": 0.98, "result": {
+        "InvoiceType": [{"word": "专用发票"}], "InvoiceCode": [{"word": "033001900112"}], "InvoiceNum": [{"word": "00223456"}],
+        "InvoiceDate": [{"word": "2024年02月03日"}], "TotalAmount": [{"word": "250.00"}], "TotalTax": [{"word": "32.50"}], "AmountInFiguers": [{"word": "282.50"}]}}]},
+      "expected": {"type": "VAT_SPECIAL", "invoiceCode": "033001900112", "invoiceNumber": "00223456", "invoiceDate": "2024-02-03", "amount": "250.00", "tax": "32.50", "total": "282.50"}
+    },
+    {
+      "id": "vat-ordinary-1",
+      "ocr": {"log_id": 2003, "words_result": [{"type": "vat_invoice", "probability": 0.98, "result": {
+        "InvoiceType": [{"word": "普通发票"}], "InvoiceCode": [{"word": "044001800222"}], "InvoiceNum": [{"word": "00098765"}],
+        "InvoiceDate": [{"word": "2024年02月20日"}], "TotalAmount": [{"word": "200.00"}], "TotalTax": [{"word": "6.00"}], "AmountInFiguers": [{"word": "206.00"}]}}]},
+      "expected": {"type": "VAT_ORDINARY", "invoiceCode": "044001800222", "invoiceNumber": "00098765", "invoiceDate": "2024-02-20", "amount": "200.00", "tax": "6.00", "total": "206.00"}
+    },
+    {
+      "id": "vat-ordinary-2",
+      "ocr": {"log_id": 2004, "words_result": [{"type": "vat_invoice", "probability": 0.97, "result": {
+        "InvoiceType": [{"word": "普通发票"}], "InvoiceCode": [{"word": "044001800223"}], "InvoiceNum": [{"word": "00198765"}],
+        "InvoiceDate": [{"word": "2024年03月11日"}], "TotalAmount": [{"word": "300.00"}], "TotalTax": [{"word": "9.00"}], "AmountInFiguers": [{"word": "309.00"}]}}]},
+      "expected": {"type": "VAT_ORDINARY", "invoiceCode": "044001800223", "invoiceNumber": "00198765", "invoiceDate": "2024-03-11", "amount": "300.00", "tax": "9.00", "total": "309.00"}
+    },
+    {
+      "id": "electronic-1",
+      "ocr": {"log_id": 2005, "words_result": [{"type": "vat_invoice", "probability": 0.97, "result": {
+        "InvoiceType": [{"word": "电子普通发票"}], "InvoiceCode": [{"word": ""}], "InvoiceNum": [{"word": "24312000000000001234"}],
+        "InvoiceDate": [{"word": "2024年03月08日"}], "TotalAmount": [{"word": "88.50"}], "TotalTax": [{"word": "5.31"}], "AmountInFiguers": [{"word": "93.81"}]}}]},
+      "expected": {"type": "ELECTRONIC", "invoiceCode": null, "invoiceNumber": "24312000000000001234", "invoiceDate": "2024-03-08", "amount": "88.50", "tax": "5.31", "total": "93.81"}
+    },
+    {
+      "id": "electronic-2",
+      "ocr": {"log_id": 2006, "words_result": [{"type": "vat_invoice", "probability": 0.96, "result": {
+        "InvoiceType": [{"word": "电子普通发票"}], "InvoiceCode": [{"word": ""}], "InvoiceNum": [{"word": "24312000000000005678"}],
+        "InvoiceDate": [{"word": "2024年04月19日"}], "TotalAmount": [{"word": "120.00"}], "TotalTax": [{"word": "7.20"}], "AmountInFiguers": [{"word": "127.20"}]}}]},
+      "expected": {"type": "ELECTRONIC", "invoiceCode": null, "invoiceNumber": "24312000000000005678", "invoiceDate": "2024-04-19", "amount": "120.00", "tax": "7.20", "total": "127.20"}
+    },
+    {
+      "id": "railway-1",
+      "ocr": {"log_id": 2007, "words_result": [{"type": "train_ticket", "probability": 0.96, "result": {
+        "ticket_num": [{"word": "A001234"}], "date": [{"word": "2024年04月10日"}], "ticket_rates": [{"word": "156.50"}],
+        "fare": [{"word": "143.58"}], "tax": [{"word": "12.92"}], "invoice_num": [{"word": "00001234"}],
+        "station_geton": [{"word": "甲站"}], "station_getoff": [{"word": "乙站"}]}}]},
+      "expected": {"type": "RAILWAY", "invoiceCode": null, "invoiceNumber": "00001234", "invoiceDate": "2024-04-10", "amount": "143.58", "tax": "12.92", "total": "156.50"}
+    },
+    {
+      "id": "railway-2",
+      "ocr": {"log_id": 2008, "words_result": [{"type": "train_ticket", "probability": 0.95, "result": {
+        "ticket_num": [{"word": "B005678"}], "date": [{"word": "2024年05月02日"}], "ticket_rates": [{"word": "553.00"}],
+        "fare": [{"word": "507.34"}], "tax": [{"word": "45.66"}], "invoice_num": [{"word": "00005678"}],
+        "station_geton": [{"word": "丙站"}], "station_getoff": [{"word": "丁站"}]}}]},
+      "expected": {"type": "RAILWAY", "invoiceCode": null, "invoiceNumber": "00005678", "invoiceDate": "2024-05-02", "amount": "507.34", "tax": "45.66", "total": "553.00"}
+    },
+    {
+      "id": "flight-1",
+      "ocr": {"log_id": 2009, "words_result": [{"type": "air_ticket", "probability": 0.95, "result": {
+        "ticket_number": [{"word": "9991234567890"}], "start_date": [{"word": "2024年05月12日"}], "date": [{"word": "2024年05月15日"}],
+        "fare": [{"word": "1200.00"}], "commodity_tax": [{"word": "108.00"}], "ticket_rates": [{"word": "1308.00"}], "invoice_num": [{"word": "00005555"}]}}]},
+      "expected": {"type": "FLIGHT", "invoiceCode": null, "invoiceNumber": "00005555", "invoiceDate": "2024-05-12", "amount": "1200.00", "tax": "108.00", "total": "1308.00"}
+    },
+    {
+      "id": "flight-2",
+      "ocr": {"log_id": 2010, "words_result": [{"type": "air_ticket", "probability": 0.94, "result": {
+        "ticket_number": [{"word": "8881234567890"}], "start_date": [{"word": "2024年06月20日"}], "date": [{"word": "2024年06月22日"}],
+        "fare": [{"word": "800.00"}], "commodity_tax": [{"word": "50.00"}], "ticket_rates": [{"word": "850.00"}], "invoice_num": [{"word": "00006666"}]}}]},
+      "expected": {"type": "FLIGHT", "invoiceCode": null, "invoiceNumber": "00006666", "invoiceDate": "2024-06-20", "amount": "800.00", "tax": "50.00", "total": "850.00"}
+    },
+    {
+      "id": "taxi-1",
+      "ocr": {"log_id": 2011, "words_result": [{"type": "taxi_receipt", "probability": 0.94, "result": {
+        "InvoiceCode": [{"word": "111001234567"}], "InvoiceNum": [{"word": "00001234"}], "Date": [{"word": "2024年06月01日"}],
+        "Fare": [{"word": "35.00"}], "TotalFare": [{"word": "38.00"}]}}]},
+      "expected": {"type": "TAXI", "invoiceCode": "111001234567", "invoiceNumber": "00001234", "invoiceDate": "2024-06-01", "amount": "35.00", "tax": null, "total": "38.00"}
+    },
+    {
+      "id": "taxi-2",
+      "ocr": {"log_id": 2012, "words_result": [{"type": "taxi_receipt", "probability": 0.93, "result": {
+        "InvoiceCode": [{"word": "111001234568"}], "InvoiceNum": [{"word": "00004321"}], "Date": [{"word": "2024年07月09日"}],
+        "Fare": [{"word": "52.00"}], "TotalFare": [{"word": "55.00"}]}}]},
+      "expected": {"type": "TAXI", "invoiceCode": "111001234568", "invoiceNumber": "00004321", "invoiceDate": "2024-07-09", "amount": "52.00", "tax": null, "total": "55.00"}
+    },
+    {
+      "id": "fixed-amount-1",
+      "ocr": {"log_id": 2013, "words_result": [{"type": "quota_invoice", "probability": 0.93, "result": {
+        "invoice_code": [{"word": "132081490320"}], "invoice_number": [{"word": "01275486"}], "invoice_rate_in_figure": [{"word": "100.00"}],
+        "invoice_rate": [{"word": "壹佰元整"}]}}]},
+      "expected": {"type": "FIXED_AMOUNT", "invoiceCode": "132081490320", "invoiceNumber": "01275486", "invoiceDate": null, "amount": null, "tax": null, "total": "100.00"}
+    },
+    {
+      "id": "fixed-amount-2",
+      "ocr": {"log_id": 2014, "words_result": [{"type": "quota_invoice", "probability": 0.92, "result": {
+        "invoice_code": [{"word": "132081490321"}], "invoice_number": [{"word": "01275487"}], "invoice_rate_in_figure": [{"word": "50.00"}],
+        "invoice_rate": [{"word": "伍拾元整"}]}}]},
+      "expected": {"type": "FIXED_AMOUNT", "invoiceCode": "132081490321", "invoiceNumber": "01275487", "invoiceDate": null, "amount": null, "tax": null, "total": "50.00"}
+    },
+    {
+      "id": "customs-1",
+      "ocr": {"log_id": 2015, "words_result": [{"type": "customs_payment", "probability": 0.92, "result": {
+        "CustomDeclarationNo": [{"word": "012020240615000001"}], "InvoiceCode": [{"word": "000000000000"}], "InvoiceNum": [{"word": "00000001"}],
+        "InvoiceDate": [{"word": "2024年07月18日"}], "TotalAmount": [{"word": "5000.00"}], "TotalTax": [{"word": "650.00"}], "AmountInFiguers": [{"word": "5650.00"}]}}]},
+      "expected": {"type": "CUSTOMS_PAYMENT", "invoiceCode": "000000000000", "invoiceNumber": "00000001", "invoiceDate": "2024-07-18", "amount": "5000.00", "tax": "650.00", "total": "5650.00"}
+    },
+    {
+      "id": "customs-2",
+      "ocr": {"log_id": 2016, "words_result": [{"type": "customs_payment", "probability": 0.91, "result": {
+        "CustomDeclarationNo": [{"word": "012020240822000002"}], "InvoiceCode": [{"word": "000000000000"}], "InvoiceNum": [{"word": "00000002"}],
+        "InvoiceDate": [{"word": "2024年08月22日"}], "TotalAmount": [{"word": "8000.00"}], "TotalTax": [{"word": "1040.00"}], "AmountInFiguers": [{"word": "9040.00"}]}}]},
+      "expected": {"type": "CUSTOMS_PAYMENT", "invoiceCode": "000000000000", "invoiceNumber": "00000002", "invoiceDate": "2024-08-22", "amount": "8000.00", "tax": "1040.00", "total": "9040.00"}
+    },
+    {
+      "id": "missing-vat-number",
+      "ocr": {"log_id": 2101, "words_result": [{"type": "vat_invoice", "probability": 0.97, "result": {
+        "InvoiceType": [{"word": "普通发票"}], "InvoiceCode": [{"word": "044001800224"}], "InvoiceNum": [{"word": ""}],
+        "InvoiceDate": [{"word": "2024年05月05日"}], "TotalAmount": [{"word": "150.00"}], "TotalTax": [{"word": "4.50"}], "AmountInFiguers": [{"word": "154.50"}]}}]},
+      "expected": {"type": "VAT_ORDINARY", "invoiceCode": "044001800224", "invoiceNumber": null, "invoiceDate": "2024-05-05", "amount": "150.00", "tax": "4.50", "total": "154.50"},
+      "anomalies": ["MISSING_REQUIRED_FIELD"]
+    },
+    {
+      "id": "missing-railway-ticket",
+      "ocr": {"log_id": 2102, "words_result": [{"type": "train_ticket", "probability": 0.95, "result": {
+        "date": [{"word": "2024年06月06日"}], "ticket_rates": [{"word": "99.00"}], "fare": [{"word": "90.83"}], "tax": [{"word": "8.17"}],
+        "invoice_num": [{"word": "00009999"}]}}]},
+      "expected": {"type": "RAILWAY", "invoiceCode": null, "invoiceNumber": "00009999", "invoiceDate": "2024-06-06", "amount": "90.83", "tax": "8.17", "total": "99.00"},
+      "anomalies": ["MISSING_REQUIRED_FIELD"]
+    },
+    {
+      "id": "amount-mismatch-vat",
+      "ocr": {"log_id": 2103, "words_result": [{"type": "vat_invoice", "probability": 0.98, "result": {
+        "InvoiceType": [{"word": "专用发票"}], "InvoiceCode": [{"word": "033001900113"}], "InvoiceNum": [{"word": "00323456"}],
+        "InvoiceDate": [{"word": "2024年06月10日"}], "TotalAmount": [{"word": "100.00"}], "TotalTax": [{"word": "13.00"}], "AmountInFiguers": [{"word": "120.00"}]}}]},
+      "expected": {"type": "VAT_SPECIAL", "invoiceCode": "033001900113", "invoiceNumber": "00323456", "invoiceDate": "2024-06-10", "amount": "100.00", "tax": "13.00", "total": "120.00"},
+      "anomalies": ["AMOUNT_MISMATCH"]
+    },
+    {
+      "id": "amount-mismatch-electronic",
+      "ocr": {"log_id": 2104, "words_result": [{"type": "vat_invoice", "probability": 0.97, "result": {
+        "InvoiceType": [{"word": "电子普通发票"}], "InvoiceCode": [{"word": ""}], "InvoiceNum": [{"word": "24312000000000009999"}],
+        "InvoiceDate": [{"word": "2024年07月01日"}], "TotalAmount": [{"word": "50.00"}], "TotalTax": [{"word": "3.00"}], "AmountInFiguers": [{"word": "60.00"}]}}]},
+      "expected": {"type": "ELECTRONIC", "invoiceCode": null, "invoiceNumber": "24312000000000009999", "invoiceDate": "2024-07-01", "amount": "50.00", "tax": "3.00", "total": "60.00"},
+      "anomalies": ["AMOUNT_MISMATCH"]
+    },
+    {
+      "id": "low-confidence-vat",
+      "ocr": {"log_id": 2105, "words_result": [{"type": "vat_invoice", "probability": 0.62, "result": {
+        "InvoiceType": [{"word": "普通发票"}], "InvoiceCode": [{"word": "044001800225"}], "InvoiceNum": [{"word": "00298765"}],
+        "InvoiceDate": [{"word": "2024年07月15日"}], "TotalAmount": [{"word": "400.00"}], "TotalTax": [{"word": "12.00"}], "AmountInFiguers": [{"word": "412.00"}]}}]},
+      "expected": {"type": "VAT_ORDINARY", "invoiceCode": "044001800225", "invoiceNumber": "00298765", "invoiceDate": "2024-07-15", "amount": "400.00", "tax": "12.00", "total": "412.00"},
+      "anomalies": ["LOW_CONFIDENCE"]
+    },
+    {
+      "id": "low-confidence-taxi",
+      "ocr": {"log_id": 2106, "words_result": [{"type": "taxi_receipt", "probability": 0.55, "result": {
+        "InvoiceCode": [{"word": "111001234569"}], "InvoiceNum": [{"word": "00005678"}], "Date": [{"word": "2024年08月01日"}],
+        "Fare": [{"word": "20.00"}], "TotalFare": [{"word": "23.00"}]}}]},
+      "expected": {"type": "TAXI", "invoiceCode": "111001234569", "invoiceNumber": "00005678", "invoiceDate": "2024-08-01", "amount": "20.00", "tax": null, "total": "23.00"},
+      "anomalies": ["LOW_CONFIDENCE"]
+    },
+    {
+      "id": "duplicate-vat-special-1",
+      "duplicateOf": "vat-special-1",
+      "ocr": {"log_id": 2201, "words_result": [{"type": "vat_invoice", "probability": 0.99, "result": {
+        "InvoiceType": [{"word": "专用发票"}], "InvoiceCode": [{"word": "033001900111"}], "InvoiceNum": [{"word": "00123456"}],
+        "InvoiceDate": [{"word": "2024年01月15日"}], "TotalAmount": [{"word": "100.00"}], "TotalTax": [{"word": "13.00"}], "AmountInFiguers": [{"word": "113.00"}]}}]},
+      "expected": {"type": "VAT_SPECIAL", "invoiceCode": "033001900111", "invoiceNumber": "00123456", "invoiceDate": "2024-01-15", "amount": "100.00", "tax": "13.00", "total": "113.00"}
+    },
+    {
+      "id": "duplicate-vat-ordinary-1",
+      "duplicateOf": "vat-ordinary-1",
+      "ocr": {"log_id": 2202, "words_result": [{"type": "vat_invoice", "probability": 0.96, "result": {
+        "InvoiceType": [{"word": "普通发票"}], "InvoiceCode": [{"word": "044001800222"}], "InvoiceNum": [{"word": "00098765"}],
+        "InvoiceDate": [{"word": "2024年02月20日"}], "TotalAmount": [{"word": "200.00"}], "TotalTax": [{"word": "6.00"}], "AmountInFiguers": [{"word": "206.00"}]}}]},
+      "expected": {"type": "VAT_ORDINARY", "invoiceCode": "044001800222", "invoiceNumber": "00098765", "invoiceDate": "2024-02-20", "amount": "200.00", "tax": "6.00", "total": "206.00"}
+    },
+    {
+      "id": "duplicate-electronic-1",
+      "duplicateOf": "electronic-1",
+      "ocr": {"log_id": 2203, "words_result": [{"type": "vat_invoice", "probability": 0.97, "result": {
+        "InvoiceType": [{"word": "电子普通发票"}], "InvoiceCode": [{"word": ""}], "InvoiceNum": [{"word": "24312000000000001234"}],
+        "InvoiceDate": [{"word": "2024年03月08日"}], "TotalAmount": [{"word": "88.50"}], "TotalTax": [{"word": "5.31"}], "AmountInFiguers": [{"word": "93.81"}]}}]},
+      "expected": {"type": "ELECTRONIC", "invoiceCode": null, "invoiceNumber": "24312000000000001234", "invoiceDate": "2024-03-08", "amount": "88.50", "tax": "5.31", "total": "93.81"}
+    },
+    {
+      "id": "duplicate-railway-1",
+      "duplicateOf": "railway-1",
+      "ocr": {"log_id": 2204, "words_result": [{"type": "train_ticket", "probability": 0.96, "result": {
+        "ticket_num": [{"word": "A001234"}], "date": [{"word": "2024年04月10日"}], "ticket_rates": [{"word": "156.50"}],
+        "fare": [{"word": "143.58"}], "tax": [{"word": "12.92"}], "invoice_num": [{"word": "00001234"}],
+        "station_geton": [{"word": "甲站"}], "station_getoff": [{"word": "乙站"}]}}]},
+      "expected": {"type": "RAILWAY", "invoiceCode": null, "invoiceNumber": "00001234", "invoiceDate": "2024-04-10", "amount": "143.58", "tax": "12.92", "total": "156.50"}
+    },
+    {
+      "id": "duplicate-flight-1",
+      "duplicateOf": "flight-1",
+      "ocr": {"log_id": 2205, "words_result": [{"type": "air_ticket", "probability": 0.95, "result": {
+        "ticket_number": [{"word": "9991234567890"}], "start_date": [{"word": "2024年05月12日"}], "date": [{"word": "2024年05月15日"}],
+        "fare": [{"word": "1200.00"}], "commodity_tax": [{"word": "108.00"}], "ticket_rates": [{"word": "1308.00"}], "invoice_num": [{"word": "00005555"}]}}]},
+      "expected": {"type": "FLIGHT", "invoiceCode": null, "invoiceNumber": "00005555", "invoiceDate": "2024-05-12", "amount": "1200.00", "tax": "108.00", "total": "1308.00"}
+    },
+    {
+      "id": "suspected-taxi-1",
+      "suspectedOf": "taxi-1",
+      "ocr": {"log_id": 2301, "words_result": [{"type": "taxi_receipt", "probability": 0.94, "result": {
+        "InvoiceCode": [{"word": "111001234570"}], "InvoiceNum": [{"word": "00007777"}], "Date": [{"word": "2024年06月01日"}],
+        "Fare": [{"word": "35.00"}], "TotalFare": [{"word": "38.00"}]}}]},
+      "expected": {"type": "TAXI", "invoiceCode": "111001234570", "invoiceNumber": "00007777", "invoiceDate": "2024-06-01", "amount": "35.00", "tax": null, "total": "38.00"},
+      "anomalies": ["SUSPECTED_DUPLICATE"]
+    },
+    {
+      "id": "suspected-customs-1",
+      "suspectedOf": "customs-1",
+      "ocr": {"log_id": 2302, "words_result": [{"type": "customs_payment", "probability": 0.92, "result": {
+        "CustomDeclarationNo": [{"word": "012020240615000003"}], "InvoiceCode": [{"word": "000000000000"}], "InvoiceNum": [{"word": "00000003"}],
+        "InvoiceDate": [{"word": "2024年07月18日"}], "TotalAmount": [{"word": "5000.00"}], "TotalTax": [{"word": "650.00"}], "AmountInFiguers": [{"word": "5650.00"}]}}]},
+      "expected": {"type": "CUSTOMS_PAYMENT", "invoiceCode": "000000000000", "invoiceNumber": "00000003", "invoiceDate": "2024-07-18", "amount": "5000.00", "tax": "650.00", "total": "5650.00"},
+      "anomalies": ["SUSPECTED_DUPLICATE"]
+    }
+  ]
+}

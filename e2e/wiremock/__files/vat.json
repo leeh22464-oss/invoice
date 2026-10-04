@@ -1,0 +1,1 @@
+{"log_id":2001,"words_result":[{"type":"vat_invoice","probability":0.99,"result":{"InvoiceType":[{"word":"专用发票"}],"InvoiceCode":[{"word":"033001900111"}],"InvoiceNum":[{"word":"00123456"}],"InvoiceDate":[{"word":"2024年01月15日"}],"TotalAmount":[{"word":"100.00"}],"TotalTax":[{"word":"13.00"}],"AmountInFiguers":[{"word":"113.00"}]}}]}

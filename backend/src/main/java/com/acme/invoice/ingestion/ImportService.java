@@ -1,5 +1,6 @@
 package com.acme.invoice.ingestion;
 
+import com.acme.invoice.ocr.OcrProcessingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -32,18 +33,21 @@ public class ImportService {
     private final ImportBatchRepository batchRepository;
     private final InvoiceFileRepository fileRepository;
     private final PendingCleanupRegistry pendingCleanup;
+    private final OcrProcessingService ocrProcessingService;
 
     public ImportService(
             UploadPolicy policy,
             FileStorage storage,
             ImportBatchRepository batchRepository,
             InvoiceFileRepository fileRepository,
-            PendingCleanupRegistry pendingCleanup) {
+            PendingCleanupRegistry pendingCleanup,
+            OcrProcessingService ocrProcessingService) {
         this.policy = policy;
         this.storage = storage;
         this.batchRepository = batchRepository;
         this.fileRepository = fileRepository;
         this.pendingCleanup = pendingCleanup;
+        this.ocrProcessingService = ocrProcessingService;
     }
 
     @Transactional
@@ -55,6 +59,7 @@ public class ImportService {
         }
 
         List<StoredReference> written = new ArrayList<>();
+        List<UUID> storedFileIds = new ArrayList<>();
         registerRollbackCleanup(userId, written);
         try {
             Instant now = Instant.now();
@@ -85,6 +90,7 @@ public class ImportService {
                             exception);
                 }
                 written.add(new StoredReference(stored.storageKey()));
+                storedFileIds.add(fileId);
                 fileRepository.save(new InvoiceFile(
                         fileId,
                         userId,
@@ -95,6 +101,7 @@ public class ImportService {
             }
             fileRepository.flush();
             batchRepository.flush();
+            scheduleRecognition(userId, storedFileIds);
             return ImportBatchView.from(batch);
         } catch (RuntimeException exception) {
             try {
@@ -152,6 +159,26 @@ public class ImportService {
                 file.getMediaType(),
                 file.getSize(),
                 sanitizeDisplayName(file.getOriginalName()));
+    }
+
+    private void scheduleRecognition(UUID userId, List<UUID> fileIds) {
+        List<UUID> ids = List.copyOf(fileIds);
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                for (UUID fileId : ids) {
+                    try {
+                        ocrProcessingService.processFile(userId, fileId);
+                    } catch (RuntimeException exception) {
+                        log.error(
+                                "OCR processing failed userId={} invoiceFileId={}",
+                                userId,
+                                fileId,
+                                exception);
+                    }
+                }
+            }
+        });
     }
 
     private void registerRollbackCleanup(

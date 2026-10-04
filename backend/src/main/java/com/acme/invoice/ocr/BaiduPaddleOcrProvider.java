@@ -79,7 +79,7 @@ public class BaiduPaddleOcrProvider implements OcrProvider {
         throw lastFailure == null ? new PaddleServiceUnavailableException() : lastFailure;
     }
 
-    OcrDocument parseResponse(String rawJson) {
+    public OcrDocument parseResponse(String rawJson) {
         try {
             JsonNode root = MAPPER.readTree(rawJson);
             String requestId = textOrNumber(root.get("log_id"));

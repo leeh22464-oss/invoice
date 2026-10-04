@@ -42,4 +42,22 @@ dependencies {
 
 tasks.named('test') {
     useJUnitPlatform()
+    inputs.dir('../benchmark/fixtures')
+            .withPropertyName('benchmarkFixtures')
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+}
+
+tasks.named('bootRun') {
+    def secureCookie = System.getenv('APP_JWT_SECURE_COOKIE')
+    if (secureCookie != null) {
+        systemProperty 'app.jwt.secure-cookie', secureCookie
+    }
+}
+
+tasks.register('exportWireMock', Copy) {
+    group = 'verification'
+    description = 'Copy the WireMock standalone jar used by browser tests'
+    from configurations.testRuntimeClasspath
+    include 'wiremock-standalone-*.jar'
+    into layout.buildDirectory.dir('wiremock')
 }
