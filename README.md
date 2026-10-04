@@ -85,10 +85,10 @@ cd e2e; npm test
 
 ## 备份
 
-转储 Postgres 数据库，并复制 `APP_STORAGE_ROOT` 指向的目录。不要提交转储文件，也不要提交该存储目录。
+转储 Postgres 数据库，并复制 `APP_STORAGE_ROOT` 指向的目录。不要提交转储文件，也不要提交该存储目录。PowerShell 5.1 的 `>` 会按控制台编码解码标准输出再写成 UTF-16，所以用 `cmd /c` 关闭 TTY 并按原始字节写出 SQL。
 
 ```powershell
-docker compose exec postgres pg_dump -U invoice -d invoice > invoice-backup.sql
+cmd /c "docker compose exec -T postgres pg_dump -U invoice -d invoice > invoice-backup.sql"
 Copy-Item -Recurse $env:APP_STORAGE_ROOT .\storage-backup
 ```
 
