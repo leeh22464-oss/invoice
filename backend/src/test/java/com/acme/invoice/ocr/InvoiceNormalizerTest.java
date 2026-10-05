@@ -1,6 +1,7 @@
 package com.acme.invoice.ocr;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
@@ -8,6 +9,7 @@ import java.io.InputStream;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -77,6 +79,18 @@ class InvoiceNormalizerTest {
         if (code != null && !code.isBlank() && code.startsWith("0")) {
             assertThat(invoice.invoiceCode()).startsWith("0");
         }
+    }
+
+    @Test
+    void unrecognizedProviderTypeBecomesUnknownInsteadOfFailing() {
+        OcrDocument document = new OcrDocument(
+                "unknown-1",
+                "{}",
+                List.of(new OcrField("type", "toll_invoice", new BigDecimal("0.91"))));
+
+        NormalizedInvoice invoice = normalizer.normalize(document);
+
+        assertThat(invoice.type()).isEqualTo(InvoiceType.UNKNOWN);
     }
 
     private static InputStream fixtureStream(String name) {

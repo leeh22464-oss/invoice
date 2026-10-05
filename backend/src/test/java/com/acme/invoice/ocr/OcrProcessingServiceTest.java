@@ -86,6 +86,7 @@ class OcrProcessingServiceTest {
                 mock(InvoiceRepository.class),
                 deduplicationService,
                 null,
+                null,
                 clock,
                 passthroughTransactionManager());
     }

@@ -254,6 +254,186 @@ class InvoiceReviewControllerTest {
     }
 
     @Test
+    void passingReviewRequiredInvoiceAuditsStatusAndOpensLedgerExportAndErp() throws Exception {
+        Cookie token = register("pass-owner@example.com");
+        UUID userId = userId("pass-owner@example.com");
+        UUID invoiceId = seedInvoice(
+                userId,
+                "VAT_SPECIAL",
+                "033001900111",
+                "00123456",
+                LocalDate.of(2024, 1, 15),
+                new BigDecimal("100.00"),
+                new BigDecimal("13.00"),
+                new BigDecimal("113.00"),
+                "REVIEW_REQUIRED",
+                null);
+
+        mvc.perform(patch("/api/invoices/{id}", invoiceId)
+                        .with(csrf())
+                        .cookie(token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"PASSED\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PASSED"));
+
+        assertThat(jdbc.queryForObject(
+                "select status from invoices where id = ?", String.class, invoiceId))
+                .isEqualTo("PASSED");
+        assertThat(jdbc.queryForObject(
+                """
+                select count(*) from audit_events
+                where user_id = ? and invoice_id = ? and field_name = ? and old_value = ? and new_value = ?
+                """,
+                Long.class,
+                userId,
+                invoiceId,
+                "status",
+                "REVIEW_REQUIRED",
+                "PASSED")).isEqualTo(1L);
+
+        mvc.perform(get("/api/ledger").cookie(token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(invoiceId.toString()))
+                .andExpect(jsonPath("$[0].status").value("PASSED"));
+        mvc.perform(get("/api/ledger/export.csv").cookie(token))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .string(org.hamcrest.Matchers.containsString(invoiceId.toString())));
+        mvc.perform(get("/api/erp/invoices").cookie(token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(invoiceId.toString()))
+                .andExpect(jsonPath("$[0].status").value("PASSED"));
+    }
+
+    @Test
+    void providerFieldCorrectionUpdatesColumnsConfidenceKeyLedgerAndErp() throws Exception {
+        Cookie token = register("alias-owner@example.com");
+        UUID userId = userId("alias-owner@example.com");
+        UUID invoiceId = seedInvoice(
+                userId,
+                "VAT_SPECIAL",
+                "033001900111",
+                "00000001",
+                LocalDate.of(2024, 1, 15),
+                new BigDecimal("100.00"),
+                new BigDecimal("13.00"),
+                new BigDecimal("113.00"),
+                "REVIEW_REQUIRED",
+                "VAT_SPECIAL|033001900111|00000001",
+                "{\"InvoiceNum\":{\"sourceText\":\"00000001\",\"confidence\":0.10},"
+                        + "\"InvoiceCode\":{\"sourceText\":\"033001900111\",\"confidence\":0.99},"
+                        + "\"InvoiceDate\":{\"sourceText\":\"2024-01-15\",\"confidence\":0.99},"
+                        + "\"TotalAmount\":{\"sourceText\":\"100.00\",\"confidence\":0.99},"
+                        + "\"TotalTax\":{\"sourceText\":\"13.00\",\"confidence\":0.99},"
+                        + "\"AmountInFiguers\":{\"sourceText\":\"100.00\",\"confidence\":0.10}}");
+
+        mvc.perform(patch("/api/invoices/{id}", invoiceId)
+                        .with(csrf())
+                        .cookie(token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"fields":{"InvoiceNum":"00998877","AmountInFiguers":"113.00"}}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.invoiceNumber").value("00998877"))
+                .andExpect(jsonPath("$.total").value(113.00))
+                .andExpect(jsonPath("$.fields.InvoiceNum").value("00998877"))
+                .andExpect(jsonPath("$.fieldConfidence.InvoiceNum").value(1))
+                .andExpect(jsonPath("$.fieldConfidence.AmountInFiguers").value(1))
+                .andExpect(jsonPath("$.status").value("PASSED"));
+
+        assertThat(jdbc.queryForObject(
+                "select invoice_number from invoices where id = ?", String.class, invoiceId))
+                .isEqualTo("00998877");
+        assertThat(jdbc.queryForObject(
+                "select total from invoices where id = ?", BigDecimal.class, invoiceId))
+                .isEqualByComparingTo("113.00");
+        assertThat(jdbc.queryForObject(
+                "select exact_duplicate_key from invoices where id = ?", String.class, invoiceId))
+                .isEqualTo("VAT_SPECIAL|033001900111|00998877");
+
+        mvc.perform(get("/api/ledger").cookie(token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].invoiceNumber").value("00998877"))
+                .andExpect(jsonPath("$[0].total").value(113.00));
+        mvc.perform(get("/api/erp/invoices").cookie(token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].invoiceNumber").value("00998877"));
+    }
+
+    @Test
+    void listAndDetailExposeConfidenceIssuesAndDuplicateEvidence() throws Exception {
+        Cookie token = register("evidence-owner@example.com");
+        UUID userId = userId("evidence-owner@example.com");
+        UUID matchedId = seedInvoice(
+                userId,
+                "VAT_SPECIAL",
+                "033001900111",
+                "00111111",
+                LocalDate.of(2024, 1, 15),
+                new BigDecimal("100.00"),
+                new BigDecimal("13.00"),
+                new BigDecimal("113.00"),
+                "PASSED",
+                "VAT_SPECIAL|033001900111|00111111");
+        UUID invoiceId = seedInvoice(
+                userId,
+                "VAT_SPECIAL",
+                "033001900222",
+                "00222222",
+                LocalDate.of(2024, 1, 15),
+                new BigDecimal("100.00"),
+                new BigDecimal("13.00"),
+                new BigDecimal("113.00"),
+                "REVIEW_REQUIRED",
+                null,
+                "{\"InvoiceNum\":{\"sourceText\":\"00222222\",\"confidence\":0.20}}");
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        jdbc.update(
+                """
+                insert into verification_issues(
+                    id, user_id, invoice_id, code, field_name, message, severity, created_at)
+                values (?, ?, ?, 'LOW_CONFIDENCE', 'InvoiceNum', 'field confidence is below threshold', 'REVIEW', ?)
+                """,
+                UUID.randomUUID(),
+                userId,
+                invoiceId,
+                now);
+        jdbc.update(
+                """
+                insert into duplicate_matches(
+                    id, user_id, invoice_id, matched_invoice_id, match_type, score, matched_fields_json, created_at)
+                values (?, ?, ?, ?, 'SUSPECTED', 0.7500, '["invoiceDate","total"]', ?)
+                """,
+                UUID.randomUUID(),
+                userId,
+                invoiceId,
+                matchedId,
+                now);
+
+        mvc.perform(get("/api/invoices").cookie(token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.id == '%s')].fieldConfidence.InvoiceNum".formatted(invoiceId))
+                        .value(org.hamcrest.Matchers.hasItem(0.2)))
+                .andExpect(jsonPath("$[?(@.id == '%s')].issues[0].code".formatted(invoiceId))
+                        .value(org.hamcrest.Matchers.hasItem("LOW_CONFIDENCE")))
+                .andExpect(jsonPath("$[?(@.id == '%s')].duplicateEvidence.matchType".formatted(invoiceId))
+                        .value(org.hamcrest.Matchers.hasItem("SUSPECTED")))
+                .andExpect(jsonPath("$[?(@.id == '%s')].duplicateEvidence.matchedInvoiceId".formatted(invoiceId))
+                        .value(org.hamcrest.Matchers.hasItem(matchedId.toString())));
+
+        mvc.perform(get("/api/invoices/{id}", invoiceId).cookie(token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.fieldConfidence.InvoiceNum").value(0.2))
+                .andExpect(jsonPath("$.issues[0].code").value("LOW_CONFIDENCE"))
+                .andExpect(jsonPath("$.issues[0].field").value("InvoiceNum"))
+                .andExpect(jsonPath("$.duplicateEvidence.matchType").value("SUSPECTED"))
+                .andExpect(jsonPath("$.duplicateEvidence.matchedInvoiceId").value(matchedId.toString()))
+                .andExpect(jsonPath("$.duplicateEvidence.matchedFields[0]").value("invoiceDate"));
+    }
+
+    @Test
     void crossUserInvoiceIdsReturn404() throws Exception {
         Cookie owner = register("owner-review@example.com");
         Cookie other = register("other-review@example.com");
@@ -308,6 +488,22 @@ class InvoiceReviewControllerTest {
             BigDecimal total,
             String status,
             String exactKey) {
+        return seedInvoice(
+                userId, type, code, number, date, amount, tax, total, status, exactKey, "{}");
+    }
+
+    private UUID seedInvoice(
+            UUID userId,
+            String type,
+            String code,
+            String number,
+            LocalDate date,
+            BigDecimal amount,
+            BigDecimal tax,
+            BigDecimal total,
+            String status,
+            String exactKey,
+            String fieldsJson) {
         UUID id = UUID.randomUUID();
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         jdbc.update(
@@ -315,7 +511,7 @@ class InvoiceReviewControllerTest {
                 insert into invoices(
                     id, user_id, invoice_type, invoice_code, invoice_number, invoice_date,
                     amount, tax, total, status, exact_duplicate_key, fields_json, created_at, updated_at)
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 id,
                 userId,
@@ -328,6 +524,7 @@ class InvoiceReviewControllerTest {
                 total,
                 status,
                 exactKey,
+                fieldsJson,
                 now,
                 now);
         return id;

@@ -26,14 +26,17 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Base64;
 import java.util.List;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
@@ -113,12 +116,21 @@ class ImportOcrProcessingTest {
                         .content("{\"apiKey\":\"abcdefgh1234\",\"secretKey\":\"local-secret\"}"))
                 .andExpect(status().isOk());
 
-        mvc.perform(multipart("/api/import-batches")
+        String created = mvc.perform(multipart("/api/import-batches")
                         .file(jpeg("special.jpg"))
                         .file(png("special.png"))
                         .with(csrf())
                         .cookie(token))
-                .andExpect(status().isCreated());
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        UUID batchId = UUID.fromString(created.replaceAll(".*\"id\":\"([^\"]+)\".*", "$1"));
+        mvc.perform(get("/api/import-batches/{id}", batchId).cookie(token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.statusCounts.PASSED").value(1))
+                .andExpect(jsonPath("$.statusCounts.REVIEW_REQUIRED").value(1));
 
         Integer invoices = jdbc.queryForObject("select count(*) from invoices", Integer.class);
         List<String> numbers = jdbc.queryForList(

@@ -3,7 +3,10 @@ package com.acme.invoice.ledger;
 import com.acme.invoice.invoice.Invoice;
 import com.acme.invoice.invoice.InvoiceRepository;
 import com.acme.invoice.invoice.InvoiceStatus;
+import com.acme.invoice.ocr.InvoiceType;
 import com.acme.invoice.ocr.NormalizedField;
+import com.acme.invoice.review.ReviewException;
+import org.springframework.http.HttpStatus;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.xssf.streaming.SXSSFWorkbook;
@@ -31,12 +34,35 @@ public class LedgerService {
 
     @Transactional(readOnly = true)
     public List<Invoice> listPassed(UUID userId) {
-        return invoices.findByUserIdAndStatusOrderByCreatedAtDesc(userId, InvoiceStatus.PASSED);
+        return listPassed(userId, LedgerFilter.empty());
+    }
+
+    @Transactional(readOnly = true)
+    public List<Invoice> listPassed(UUID userId, LedgerFilter filter) {
+        LedgerFilter safe = filter == null ? LedgerFilter.empty() : filter;
+        InvoiceType type = parseType(safe.invoiceType());
+        String number = blankToNull(safe.invoiceNumber());
+        return invoices.findByUserIdAndStatusOrderByCreatedAtDesc(userId, InvoiceStatus.PASSED)
+                .stream()
+                .filter(invoice -> type == null || invoice.getInvoiceType() == type)
+                .filter(invoice -> number == null || number.equals(invoice.getInvoiceNumber()))
+                .filter(invoice -> safe.dateFrom() == null
+                        || (invoice.getInvoiceDate() != null
+                        && !invoice.getInvoiceDate().isBefore(safe.dateFrom())))
+                .filter(invoice -> safe.dateTo() == null
+                        || (invoice.getInvoiceDate() != null
+                        && !invoice.getInvoiceDate().isAfter(safe.dateTo())))
+                .toList();
     }
 
     @Transactional(readOnly = true)
     public byte[] exportCsv(UUID userId) {
-        List<Invoice> rows = listPassed(userId);
+        return exportCsv(userId, LedgerFilter.empty());
+    }
+
+    @Transactional(readOnly = true)
+    public byte[] exportCsv(UUID userId, LedgerFilter filter) {
+        List<Invoice> rows = listPassed(userId, filter);
         StringBuilder csv = new StringBuilder();
         csv.append("id,invoiceCode,invoiceNumber,invoiceDate,amount,tax,total,purchaser,seller\n");
         for (Invoice invoice : rows) {
@@ -58,7 +84,12 @@ public class LedgerService {
 
     @Transactional(readOnly = true)
     public byte[] exportXlsx(UUID userId) {
-        List<Invoice> rows = listPassed(userId);
+        return exportXlsx(userId, LedgerFilter.empty());
+    }
+
+    @Transactional(readOnly = true)
+    public byte[] exportXlsx(UUID userId, LedgerFilter filter) {
+        List<Invoice> rows = listPassed(userId, filter);
         try (SXSSFWorkbook workbook = new SXSSFWorkbook(100);
                 ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             Sheet sheet = workbook.createSheet("ledger");
@@ -90,6 +121,24 @@ public class LedgerService {
         } catch (IOException exception) {
             throw new IllegalStateException("Unable to export ledger workbook", exception);
         }
+    }
+
+    private static InvoiceType parseType(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return InvoiceType.valueOf(raw.trim());
+        } catch (IllegalArgumentException exception) {
+            throw new ReviewException(
+                    "INVALID_INVOICE_TYPE",
+                    "invoiceType is not recognized",
+                    HttpStatus.BAD_REQUEST);
+        }
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     static String sanitize(String value) {

@@ -71,6 +71,7 @@
 | 状态 | code | 条件 |
 | --- | --- | --- |
 | 400 | `IDEMPOTENCY_KEY_REQUIRED` | 没有 `Idempotency-Key`，或该头为空白。消息为 `Idempotency-Key header is required` |
+| 400 | `IDEMPOTENCY_KEY_TOO_LONG` | `Idempotency-Key` 超过 128 个字符。消息为 `Idempotency-Key must be at most 128 characters` |
 | 400 | `INVOICE_REQUIRED` | 请求体缺少 `invoiceId`。消息为 `invoiceId is required` |
 | 404 | `INVOICE_NOT_FOUND` | 发票不存在，或属于另一个用户。消息为 `Invoice not found` |
 | 409 | `INVOICE_NOT_PASSED` | 发票不是 `PASSED`。消息为 `Only PASSED invoices can be pushed to ERP` |

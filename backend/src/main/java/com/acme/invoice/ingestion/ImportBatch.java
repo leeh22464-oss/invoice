@@ -67,4 +67,9 @@ public class ImportBatch {
     public int getTotalFiles() {
         return totalFiles;
     }
+
+    public void markStatus(String status, Instant updatedAt) {
+        this.status = status;
+        this.updatedAt = updatedAt;
+    }
 }

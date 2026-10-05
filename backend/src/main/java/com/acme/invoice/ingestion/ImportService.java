@@ -134,19 +134,28 @@ public class ImportService {
 
     @Transactional(readOnly = true)
     public ImportBatchView get(UUID userId, UUID batchId) {
-        return batchRepository.findByIdAndUserId(batchId, userId)
-                .map(ImportBatchView::from)
+        ImportBatch batch = batchRepository.findByIdAndUserId(batchId, userId)
                 .orElseThrow(this::notFound);
+        return ImportBatchView.from(batch, statusCounts(userId, batchId));
     }
 
     @Transactional(readOnly = true)
     public BatchProgressEvent progress(UUID userId, UUID batchId) {
         ImportBatch batch = batchRepository.findByIdAndUserId(batchId, userId)
                 .orElseThrow(this::notFound);
-        Map<String, Long> statusCounts = fileRepository.findByBatchIdAndUserId(batchId, userId)
+        return new BatchProgressEvent(
+                batch.getTotalFiles(),
+                batch.getStatus(),
+                statusCounts(userId, batchId));
+    }
+
+    private Map<String, Long> statusCounts(UUID userId, UUID batchId) {
+        return fileRepository.findByBatchIdAndUserId(batchId, userId)
                 .stream()
-                .collect(Collectors.groupingBy(InvoiceFile::getStatus, Collectors.counting()));
-        return new BatchProgressEvent(batch.getTotalFiles(), batch.getStatus(), statusCounts);
+                .collect(Collectors.groupingBy(
+                        InvoiceFile::getStatus,
+                        java.util.LinkedHashMap::new,
+                        Collectors.counting()));
     }
 
     @Transactional(readOnly = true)

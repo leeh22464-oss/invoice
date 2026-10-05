@@ -31,6 +31,12 @@ const progress = ref<Progress | null>(null)
 
 let eventSource: EventSource | null = null
 let pollTimer: number | undefined
+let activeBatchId = ''
+let sawTerminal = false
+
+function isTerminal(status: string): boolean {
+  return status === 'COMPLETED' || status === 'FAILED'
+}
 
 function extensionOf(name: string): string {
   const dot = name.lastIndexOf('.')
@@ -98,36 +104,57 @@ function readProgress(raw: unknown): Progress | null {
   }
 }
 
+function applyProgress(id: string, next: Progress) {
+  if (id !== activeBatchId) {
+    return
+  }
+  progress.value = next
+  if (isTerminal(next.status)) {
+    sawTerminal = true
+    if (pollTimer !== undefined) {
+      window.clearInterval(pollTimer)
+      pollTimer = undefined
+    }
+  }
+}
+
 async function poll(id: string) {
   try {
     const { data } = await api.get<Progress & { id: string }>(`/api/import-batches/${id}`)
-    progress.value = {
+    applyProgress(id, {
       totalFiles: data.totalFiles,
       status: data.status,
       statusCounts: data.statusCounts ?? {},
-    }
+    })
   } catch (error) {
+    if (id !== activeBatchId) {
+      return
+    }
     liveMessage.value = readApiError(error).message
   }
 }
 
 function listen(id: string) {
   stopListening()
+  activeBatchId = id
+  sawTerminal = false
   const source = new EventSource(`/api/import-batches/${id}/events`, { withCredentials: true })
   eventSource = source
   source.addEventListener('progress', (event) => {
     try {
       const next = readProgress((event as MessageEvent).data)
       if (next) {
-        progress.value = next
+        applyProgress(id, next)
       }
     } catch {
-      liveMessage.value = '导入进度无法读取'
+      if (id === activeBatchId) {
+        liveMessage.value = '导入进度无法读取'
+      }
     }
   })
   source.addEventListener('error', () => {
     source.close()
-    if (pollTimer !== undefined) {
+    if (id !== activeBatchId || sawTerminal || pollTimer !== undefined) {
       return
     }
     pollTimer = window.setInterval(() => {

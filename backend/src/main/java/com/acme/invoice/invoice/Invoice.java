@@ -18,7 +18,12 @@ import jakarta.persistence.Transient;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
+import java.time.format.SignStyle;
+import java.time.temporal.ChronoField;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -29,6 +34,14 @@ public class Invoice {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final TypeReference<Map<String, Map<String, Object>>> FIELDS_JSON_TYPE =
             new TypeReference<>() {};
+    private static final DateTimeFormatter CN_DATE = new DateTimeFormatterBuilder()
+            .appendValue(ChronoField.YEAR, 4)
+            .appendLiteral('年')
+            .appendValue(ChronoField.MONTH_OF_YEAR, 1, 2, SignStyle.NOT_NEGATIVE)
+            .appendLiteral('月')
+            .appendValue(ChronoField.DAY_OF_MONTH, 1, 2, SignStyle.NOT_NEGATIVE)
+            .appendLiteral('日')
+            .toFormatter(Locale.ROOT);
 
     @Id
     private UUID id;
@@ -166,45 +179,107 @@ public class Invoice {
     }
 
     public String readFieldValue(String fieldName) {
+        if (fields != null) {
+            NormalizedField field = fields.get(fieldName);
+            if (field != null && field.sourceText() != null) {
+                return field.sourceText();
+            }
+        }
+        String canonical = canonicalField(fieldName);
+        if (canonical == null) {
+            return null;
+        }
+        return readCanonical(canonical);
+    }
+
+    public void applyFieldCorrection(String fieldName, String newValue, Instant now) {
+        String canonical = canonicalField(fieldName);
+        if (canonical != null) {
+            applyCanonical(canonical, newValue);
+        }
+        Map<String, NormalizedField> mutable = new LinkedHashMap<>(fields == null ? Map.of() : fields);
+        if (blankToNull(newValue) == null) {
+            mutable.remove(fieldName);
+        } else {
+            mutable.put(fieldName, new NormalizedField(newValue, BigDecimal.ONE));
+        }
+        this.fields = Map.copyOf(mutable);
+        this.fieldsJson = serializeFields(this.fields);
+        this.updatedAt = now;
+    }
+
+    private String canonicalField(String fieldName) {
+        if (fieldName == null) {
+            return null;
+        }
+        String typed = typeSpecificCanonical(fieldName);
+        if (typed != null) {
+            return typed;
+        }
         return switch (fieldName) {
+            case "invoiceCode", "InvoiceCode", "invoice_code" -> "invoiceCode";
+            case "invoiceNumber", "InvoiceNum", "invoice_number", "invoice_num", "ticket_num" -> "invoiceNumber";
+            case "invoiceDate", "InvoiceDate", "invoice_date", "Date", "date", "start_date" -> "invoiceDate";
+            case "amount", "TotalAmount" -> "amount";
+            case "tax", "TotalTax" -> "tax";
+            case "total", "AmountInFiguers" -> "total";
+            default -> null;
+        };
+    }
+
+    private String typeSpecificCanonical(String fieldName) {
+        if (invoiceType == null) {
+            return null;
+        }
+        return switch (invoiceType) {
+            case RAILWAY -> switch (fieldName) {
+                case "fare" -> "amount";
+                case "tax" -> "tax";
+                case "ticket_rates" -> "total";
+                default -> null;
+            };
+            case FLIGHT -> switch (fieldName) {
+                case "fare" -> "amount";
+                case "commodity_tax" -> "tax";
+                case "ticket_rates" -> "total";
+                default -> null;
+            };
+            case TAXI -> switch (fieldName) {
+                case "Fare" -> "amount";
+                case "TotalFare" -> "total";
+                default -> null;
+            };
+            case FIXED_AMOUNT -> switch (fieldName) {
+                case "invoice_rate_in_figure", "invoice_rate_lowercase" -> "total";
+                default -> null;
+            };
+            default -> null;
+        };
+    }
+
+    private void applyCanonical(String canonical, String newValue) {
+        switch (canonical) {
+            case "invoiceCode" -> this.invoiceCode = blankToNull(newValue);
+            case "invoiceNumber" -> this.invoiceNumber = blankToNull(newValue);
+            case "invoiceDate" -> this.invoiceDate = parseDate(newValue);
+            case "amount" -> this.amount = parseDecimal(newValue);
+            case "tax" -> this.tax = parseDecimal(newValue);
+            case "total" -> this.total = parseDecimal(newValue);
+            default -> {
+            }
+        }
+    }
+
+    private String readCanonical(String canonical) {
+        return switch (canonical) {
             case "invoiceCode" -> invoiceCode;
             case "invoiceNumber" -> invoiceNumber;
             case "invoiceDate" -> invoiceDate == null ? null : invoiceDate.toString();
             case "amount" -> amount == null ? null : amount.toPlainString();
             case "tax" -> tax == null ? null : tax.toPlainString();
             case "total" -> total == null ? null : total.toPlainString();
-            default -> {
-                NormalizedField field = fields == null ? null : fields.get(fieldName);
-                yield field == null ? null : field.sourceText();
-            }
+            default -> null;
         };
-    }
-
-    public void applyFieldCorrection(String fieldName, String newValue, Instant now) {
-        switch (fieldName) {
-            case "invoiceCode" -> this.invoiceCode = blankToNull(newValue);
-            case "invoiceNumber" -> this.invoiceNumber = blankToNull(newValue);
-            case "invoiceDate" -> this.invoiceDate =
-                    blankToNull(newValue) == null ? null : LocalDate.parse(newValue);
-            case "amount" -> this.amount = parseDecimal(newValue);
-            case "tax" -> this.tax = parseDecimal(newValue);
-            case "total" -> this.total = parseDecimal(newValue);
-            default -> {
-                Map<String, NormalizedField> mutable = new LinkedHashMap<>(
-                        fields == null ? Map.of() : fields);
-                if (blankToNull(newValue) == null) {
-                    mutable.remove(fieldName);
-                } else {
-                    BigDecimal confidence = mutable.containsKey(fieldName)
-                            ? mutable.get(fieldName).confidence()
-                            : BigDecimal.ONE;
-                    mutable.put(fieldName, new NormalizedField(newValue, confidence));
-                }
-                this.fields = Map.copyOf(mutable);
-                this.fieldsJson = serializeFields(this.fields);
-            }
-        }
-        this.updatedAt = now;
     }
 
     public static Invoice rehydrate(
@@ -364,7 +439,30 @@ public class Invoice {
 
     private static BigDecimal parseDecimal(String value) {
         String normalized = blankToNull(value);
-        return normalized == null ? null : new BigDecimal(normalized);
+        if (normalized == null) {
+            return null;
+        }
+        String cleaned = normalized.replace(",", "").replace("￥", "").replace("¥", "").trim();
+        return new BigDecimal(cleaned);
+    }
+
+    private static LocalDate parseDate(String value) {
+        String normalized = blankToNull(value);
+        if (normalized == null) {
+            return null;
+        }
+        String text = normalized.trim();
+        try {
+            if (text.contains("年")) {
+                return LocalDate.parse(text, CN_DATE);
+            }
+            if (text.length() == 8 && text.chars().allMatch(Character::isDigit)) {
+                return LocalDate.parse(text, DateTimeFormatter.BASIC_ISO_DATE);
+            }
+            return LocalDate.parse(text, DateTimeFormatter.ISO_LOCAL_DATE);
+        } catch (RuntimeException exception) {
+            throw new IllegalArgumentException("Unparseable invoice date");
+        }
     }
 
     private static Map<String, NormalizedField> parseFields(String json) {

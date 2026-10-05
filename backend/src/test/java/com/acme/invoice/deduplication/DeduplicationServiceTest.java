@@ -212,6 +212,71 @@ class DeduplicationServiceTest {
         assertThat(candidate.getStatus()).isEqualTo(InvoiceStatus.REVIEW_REQUIRED);
         assertThat(candidate.getStatus()).isNotEqualTo(InvoiceStatus.PASSED);
         assertThat(candidate.getStatus()).isNotEqualTo(InvoiceStatus.BLOCKED_DUPLICATE);
+        assertThat(jdbc.queryForObject(
+                "select match_type from duplicate_matches where invoice_id = ?",
+                String.class,
+                candidate.getId())).isEqualTo("SUSPECTED");
+    }
+
+    @Test
+    void laterEvaluationDoesNotDemoteAcceptedInvoiceSolelyForSuspicion() {
+        UUID userId = seedUser("accepted-suspect@example.com");
+        seedInvoice(
+                userId,
+                InvoiceType.VAT_ORDINARY,
+                "044001800222",
+                "00098765",
+                LocalDate.of(2024, 2, 20),
+                new BigDecimal("200.00"),
+                new BigDecimal("6.00"),
+                new BigDecimal("206.00"),
+                "VAT_ORDINARY|044001800222|00098765",
+                InvoiceStatus.PASSED);
+        Invoice candidate = newInvoice(
+                userId,
+                InvoiceType.VAT_ORDINARY,
+                "044001800223",
+                "00098766",
+                LocalDate.of(2024, 2, 20),
+                new BigDecimal("200.00"),
+                new BigDecimal("6.00"),
+                new BigDecimal("206.00"),
+                Map.of("PurchaserName", new NormalizedField("Acme", new BigDecimal("0.9"))));
+
+        deduplicationService.evaluate(userId, candidate);
+        assertThat(candidate.getStatus()).isEqualTo(InvoiceStatus.REVIEW_REQUIRED);
+
+        candidate.markStatus(InvoiceStatus.PASSED, Instant.now());
+        deduplicationService.evaluate(userId, candidate);
+
+        assertThat(candidate.getStatus()).isEqualTo(InvoiceStatus.PASSED);
+        assertThat(jdbc.queryForObject(
+                "select status from invoices where id = ?",
+                String.class,
+                candidate.getId())).isEqualTo("PASSED");
+    }
+
+    @Test
+    void evaluatePersistsLowConfidenceIssues() {
+        UUID userId = seedUser("low-confidence@example.com");
+        Invoice candidate = newInvoice(
+                userId,
+                InvoiceType.VAT_SPECIAL,
+                "033001900111",
+                "00123456",
+                LocalDate.of(2024, 1, 15),
+                new BigDecimal("100.00"),
+                new BigDecimal("13.00"),
+                new BigDecimal("113.00"),
+                Map.of("AmountInFiguers", new NormalizedField("113.00", new BigDecimal("0.10"))));
+
+        deduplicationService.evaluate(userId, candidate);
+
+        assertThat(candidate.getStatus()).isEqualTo(InvoiceStatus.REVIEW_REQUIRED);
+        assertThat(jdbc.queryForObject(
+                "select code from verification_issues where invoice_id = ?",
+                String.class,
+                candidate.getId())).isEqualTo("LOW_CONFIDENCE");
     }
 
     @Test

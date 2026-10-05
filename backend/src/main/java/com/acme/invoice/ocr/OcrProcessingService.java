@@ -3,6 +3,7 @@ package com.acme.invoice.ocr;
 import com.acme.invoice.credential.OcrCredentialService;
 import com.acme.invoice.credential.PaddleCredential;
 import com.acme.invoice.deduplication.DeduplicationService;
+import com.acme.invoice.ingestion.BatchStatusSync;
 import com.acme.invoice.ingestion.FileStorage;
 import com.acme.invoice.ingestion.InvoiceFile;
 import com.acme.invoice.ingestion.InvoiceFileRepository;
@@ -43,6 +44,7 @@ public class OcrProcessingService {
     private final InvoiceRepository invoiceRepository;
     private final DeduplicationService deduplicationService;
     private final StoredFileContentHolder contentHolder;
+    private final BatchStatusSync batchStatusSync;
     private final Clock clock;
     private final TransactionTemplate requiredTx;
     private final TransactionTemplate requiresNewTx;
@@ -61,6 +63,7 @@ public class OcrProcessingService {
             InvoiceRepository invoiceRepository,
             DeduplicationService deduplicationService,
             StoredFileContentHolder contentHolder,
+            BatchStatusSync batchStatusSync,
             Clock clock,
             PlatformTransactionManager transactionManager) {
         this.credentialService = credentialService;
@@ -73,8 +76,12 @@ public class OcrProcessingService {
         this.invoiceRepository = invoiceRepository;
         this.deduplicationService = deduplicationService;
         this.contentHolder = contentHolder;
+        this.batchStatusSync = batchStatusSync;
         this.clock = clock;
         this.requiredTx = new TransactionTemplate(transactionManager);
+        // Import recognition runs from afterCommit, where REQUIRED would join the
+        // already-finished upload transaction and never commit file or batch status.
+        this.requiredTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.requiresNewTx = new TransactionTemplate(transactionManager);
         this.requiresNewTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
@@ -186,6 +193,7 @@ public class OcrProcessingService {
 
             file.markStatus(invoice.getStatus().name(), clock.instant());
             invoiceFileRepository.save(file);
+            refreshBatch(userId, file.getBatchId());
         } catch (IOException exception) {
             throw new PaddleServiceUnavailableException();
         }
@@ -198,9 +206,25 @@ public class OcrProcessingService {
                             HttpStatus.NOT_FOUND,
                             "INVOICE_FILE_NOT_FOUND",
                             "Invoice file was not found"));
+            if (isSuccessfulOutcome(failed.getStatus())) {
+                return;
+            }
             failed.markStatus("FAILED", clock.instant());
             invoiceFileRepository.save(failed);
+            refreshBatch(userId, failed.getBatchId());
         });
+    }
+
+    private static boolean isSuccessfulOutcome(String status) {
+        return "PASSED".equals(status)
+                || "REVIEW_REQUIRED".equals(status)
+                || "BLOCKED_DUPLICATE".equals(status);
+    }
+
+    private void refreshBatch(UUID userId, UUID batchId) {
+        if (batchStatusSync != null && batchId != null) {
+            batchStatusSync.refresh(userId, batchId);
+        }
     }
 
     private static String fieldsJson(NormalizedInvoice normalized) {

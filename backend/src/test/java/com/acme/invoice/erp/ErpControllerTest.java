@@ -8,6 +8,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -19,8 +20,18 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Base64;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.reset;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -52,6 +63,10 @@ class ErpControllerTest {
 
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
+    @Autowired ErpService erpService;
+
+    @MockitoSpyBean
+    ErpPushClient pushClient;
 
     @BeforeEach
     void clean() {
@@ -118,6 +133,83 @@ class ErpControllerTest {
                 userId,
                 "push-key-1");
         assertThat(receiptCount).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "select status from invoices where id = ?", String.class, invoiceId))
+                .isEqualTo("PASSED");
+    }
+
+    @Test
+    void idempotencyKeyLongerThan128CharactersIsRejected() throws Exception {
+        Cookie token = register("erp-long-key@example.com");
+        UUID userId = userId("erp-long-key@example.com");
+        UUID invoiceId = seedInvoice(userId, "PASSED", "033001900311", "00323456");
+        String key = "k".repeat(129);
+
+        mvc.perform(post("/api/erp/invoices/push")
+                        .with(csrf())
+                        .cookie(token)
+                        .header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"invoiceId\":\"" + invoiceId + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_TOO_LONG"))
+                .andExpect(jsonPath("$.message").value("Idempotency-Key must be at most 128 characters"));
+
+        Integer receiptCount = jdbc.queryForObject(
+                "select count(*) from erp_push_receipts where user_id = ?",
+                Integer.class,
+                userId);
+        assertThat(receiptCount).isZero();
+    }
+
+    @Test
+    void concurrentPushWithTheSameKeyCallsTheClientOnce() throws Exception {
+        UUID userId = seedUser("erp-race@example.com");
+        UUID invoiceId = seedInvoice(userId, "PASSED", "033001900411", "00423456");
+        ErpPushRequest request = new ErpPushRequest(invoiceId);
+        AtomicInteger calls = new AtomicInteger();
+        CountDownLatch inPush = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            calls.incrementAndGet();
+            inPush.countDown();
+            assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
+            return null;
+        }).when(pushClient).push(any(), any());
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            CyclicBarrier start = new CyclicBarrier(2);
+            Future<ErpPushResponse> first = pool.submit(() -> {
+                start.await(5, TimeUnit.SECONDS);
+                return erpService.push(userId, "race-key", request);
+            });
+            Future<ErpPushResponse> second = pool.submit(() -> {
+                start.await(5, TimeUnit.SECONDS);
+                return erpService.push(userId, "race-key", request);
+            });
+            assertThat(inPush.await(5, TimeUnit.SECONDS)).isTrue();
+            Thread.sleep(300);
+            assertThat(calls).hasValue(1);
+            release.countDown();
+            assertThat(first.get(5, TimeUnit.SECONDS).status()).isEqualTo("PUSHED");
+            assertThat(second.get(5, TimeUnit.SECONDS).status()).isEqualTo("PUSHED");
+            assertThat(calls).hasValue(1);
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+            reset(pushClient);
+        }
+
+        Integer receiptCount = jdbc.queryForObject(
+                "select count(*) from erp_push_receipts where user_id = ? and idempotency_key = ?",
+                Integer.class,
+                userId,
+                "race-key");
+        assertThat(receiptCount).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "select status from invoices where id = ?", String.class, invoiceId))
+                .isEqualTo("PASSED");
     }
 
     private Cookie register(String email) throws Exception {
@@ -132,6 +224,23 @@ class ErpControllerTest {
 
     private UUID userId(String email) {
         return jdbc.queryForObject("select id from users where email = ?", UUID.class, email);
+    }
+
+    private UUID seedUser(String email) {
+        registerDirect(email);
+        return userId(email);
+    }
+
+    private void registerDirect(String email) {
+        try {
+            mvc.perform(post("/api/auth/register")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"email\":\"" + email + "\",\"password\":\"StrongPass1!\"}"))
+                    .andExpect(status().isCreated());
+        } catch (Exception exception) {
+            throw new IllegalStateException(exception);
+        }
     }
 
     private UUID seedInvoice(UUID userId, String status, String code, String number) {

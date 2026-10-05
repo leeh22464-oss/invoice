@@ -108,8 +108,9 @@ public class InvoiceNormalizer {
                     return InvoiceType.VAT_ORDINARY;
                 }
             }
+            return InvoiceType.UNKNOWN;
         }
-        throw new IllegalArgumentException("Unsupported invoice type");
+        return InvoiceType.UNKNOWN;
     }
 
     private static Map<String, OcrField> index(OcrDocument document) {

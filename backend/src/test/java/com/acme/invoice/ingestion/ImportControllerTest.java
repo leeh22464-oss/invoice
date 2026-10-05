@@ -312,11 +312,31 @@ class ImportControllerTest {
                 .getResponse()
                 .getContentAsString();
 
-        assertThat(body).contains("totalFiles").contains("QUEUED");
+        assertThat(body).contains("totalFiles").contains("FAILED").contains("statusCounts");
         assertThat(body).doesNotContain("RAW_OCR_SECRET_JSON");
         assertThat(body).doesNotContain("SECRET-API-MASK");
         assertThat(body).doesNotContain("api_key");
         assertThat(body).doesNotContain("raw_json");
+    }
+
+    @Test
+    void batchGetReturnsFileCountsAndTerminalStatus() throws Exception {
+        Cookie owner = register("batch-counts@example.com");
+        String body = mvc.perform(multipart("/api/import-batches")
+                        .file(png("invoice.png"))
+                        .with(csrf())
+                        .cookie(owner))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        UUID batchId = UUID.fromString(body.replaceAll(".*\"id\":\"([^\"]+)\".*", "$1"));
+
+        mvc.perform(get("/api/import-batches/{id}", batchId).cookie(owner))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("FAILED"))
+                .andExpect(jsonPath("$.statusCounts.FAILED").value(1))
+                .andExpect(jsonPath("$.totalFiles").value(1));
     }
 
     @Test

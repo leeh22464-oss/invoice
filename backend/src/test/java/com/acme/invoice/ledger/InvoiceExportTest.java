@@ -164,6 +164,49 @@ class InvoiceExportTest {
                 .andExpect(jsonPath("$[*].status", everyItem(is("PASSED"))));
     }
 
+    @Test
+    void ledgerListAndExportsApplyTypeNumberAndDateFiltersTogether() throws Exception {
+        Cookie token = register("ledger-filter@example.com");
+        UUID userId = userId("ledger-filter@example.com");
+        UUID matchId = seedFiltered(
+                userId, "VAT_SPECIAL", "00990001", LocalDate.of(2024, 3, 15), "PASSED");
+        seedFiltered(userId, "ELECTRONIC", "00990001", LocalDate.of(2024, 3, 15), "PASSED");
+        seedFiltered(userId, "VAT_SPECIAL", "00990002", LocalDate.of(2024, 3, 15), "PASSED");
+        seedFiltered(userId, "VAT_SPECIAL", "00990001", LocalDate.of(2024, 4, 1), "PASSED");
+        seedFiltered(userId, "VAT_SPECIAL", "00990001", LocalDate.of(2024, 3, 15), "REVIEW_REQUIRED");
+
+        String query = "invoiceType=VAT_SPECIAL&invoiceNumber=00990001&dateFrom=2024-03-01&dateTo=2024-03-31";
+        mvc.perform(get("/api/ledger?" + query).cookie(token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].id").value(matchId.toString()))
+                .andExpect(jsonPath("$[0].invoiceNumber").value("00990001"))
+                .andExpect(jsonPath("$[0].status").value("PASSED"));
+
+        String csv = mvc.perform(get("/api/ledger/export.csv?" + query).cookie(token))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(StandardCharsets.UTF_8);
+        assertThat(csv).contains(matchId.toString());
+        assertThat(csv).contains("00990001");
+        assertThat(csv).doesNotContain("00990002");
+
+        byte[] xlsxBytes = mvc.perform(get("/api/ledger/export.xlsx?" + query).cookie(token))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsByteArray();
+        try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(xlsxBytes))) {
+            assertThat(workbook.getSheetAt(0).getLastRowNum()).isEqualTo(1);
+            DataFormatter formatter = new DataFormatter();
+            assertThat(formatter.formatCellValue(workbook.getSheetAt(0).getRow(1).getCell(0)))
+                    .isEqualTo(matchId.toString());
+            assertThat(formatter.formatCellValue(workbook.getSheetAt(0).getRow(1).getCell(2)))
+                    .isEqualTo("00990001");
+        }
+    }
+
     private Cookie register(String email) throws Exception {
         return mvc.perform(post("/api/auth/register")
                         .with(csrf())
@@ -176,6 +219,32 @@ class InvoiceExportTest {
 
     private UUID userId(String email) {
         return jdbc.queryForObject("select id from users where email = ?", UUID.class, email);
+    }
+
+    private UUID seedFiltered(
+            UUID userId,
+            String type,
+            String number,
+            LocalDate date,
+            String status) {
+        UUID id = UUID.randomUUID();
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        jdbc.update(
+                """
+                insert into invoices(
+                    id, user_id, invoice_type, invoice_code, invoice_number, invoice_date,
+                    amount, tax, total, status, exact_duplicate_key, fields_json, created_at, updated_at)
+                values (?, ?, ?, '033001900111', ?, ?, 100.00, 13.00, 113.00, ?, null, '{}', ?, ?)
+                """,
+                id,
+                userId,
+                type,
+                number,
+                date,
+                status,
+                now,
+                now);
+        return id;
     }
 
     private UUID seedInvoice(

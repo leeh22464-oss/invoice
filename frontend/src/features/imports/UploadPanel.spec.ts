@@ -152,7 +152,12 @@ describe('UploadPanel', () => {
       if (method === 'post') {
         return jsonResponse(config, 201, { id: 'batch-1', totalFiles: 1, status: 'QUEUED' })
       }
-      return jsonResponse(config, 200, { id: 'batch-1', totalFiles: 1, status: 'COMPLETED' })
+      return jsonResponse(config, 200, {
+        id: 'batch-1',
+        totalFiles: 1,
+        status: 'COMPLETED',
+        statusCounts: { PASSED: 1 },
+      })
     }
 
     const wrapper = mountUpload()
@@ -196,10 +201,60 @@ describe('UploadPanel', () => {
     expect(firstPoll).toHaveLength(1)
     expect(firstPoll[0]?.url).toBe('/api/import-batches/batch-1')
     expect(wrapper.text()).toContain('已完成')
+    expect(wrapper.get('[aria-label="导入进度"]').text()).toContain('已通过')
+    expect(wrapper.get('[aria-label="导入进度"]').text()).toContain('1')
 
     await vi.advanceTimersByTimeAsync(2000)
     await flushPromises()
-    expect(calls.filter((call) => (call.method ?? '').toLowerCase() === 'get')).toHaveLength(2)
+    expect(calls.filter((call) => (call.method ?? '').toLowerCase() === 'get')).toHaveLength(1)
+  })
+
+  it('ignores a stale batch poll after a newer upload starts', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    vi.stubGlobal('EventSource', FakeEventSource)
+
+    let releaseFirst: ((response: AxiosResponse) => void) | undefined
+    let posts = 0
+    api.defaults.adapter = async (config) => {
+      const method = (config.method ?? 'get').toLowerCase()
+      if (method === 'post') {
+        posts += 1
+        const id = posts === 1 ? 'batch-1' : 'batch-2'
+        return jsonResponse(config, 201, { id, totalFiles: 1, status: 'QUEUED' })
+      }
+      if ((config.url ?? '').endsWith('batch-1')) {
+        return new Promise<AxiosResponse>((resolve) => {
+          releaseFirst = () => resolve(jsonResponse(config, 200, {
+            id: 'batch-1',
+            totalFiles: 1,
+            status: 'COMPLETED',
+            statusCounts: { PASSED: 1 },
+          }))
+        })
+      }
+      return jsonResponse(config, 200, {
+        id: 'batch-2',
+        totalFiles: 1,
+        status: 'PROCESSING',
+        statusCounts: { OCR_PROCESSING: 1 },
+      })
+    }
+
+    const wrapper = mountUpload()
+    chooseFiles(wrapper, [fileOf('scan.jpeg', 'image/jpeg')])
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    FakeEventSource.latest?.emit('error')
+    await vi.advanceTimersByTimeAsync(2000)
+
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.get('[aria-label="导入进度"]').text()).toContain('排队中')
+
+    releaseFirst?.()
+    await flushPromises()
+    expect(wrapper.get('[aria-label="导入进度"]').text()).toContain('排队中')
+    expect(wrapper.get('[aria-label="导入进度"]').text()).not.toContain('已完成')
   })
 
   it('keeps upload, review, and ledger reachable from the shell', () => {

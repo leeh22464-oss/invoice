@@ -127,6 +127,7 @@ class OcrProcessingServiceTransactionTest {
 
         assertThat(fileStatus(failingId)).isEqualTo("FAILED");
         assertThat(fileStatus(siblingId)).isEqualTo("QUEUED");
+        assertThat(batchStatus(batchId)).isEqualTo("PROCESSING");
     }
 
     @Test
@@ -177,6 +178,7 @@ class OcrProcessingServiceTransactionTest {
                 userId,
                 fileId);
         assertThat(invoiceStatus).isEqualTo("PASSED");
+        assertThat(batchStatus(batchId)).isEqualTo("COMPLETED");
         String rawJson = jdbc.queryForObject(
                 "select raw_json from ocr_results where invoice_file_id = ?",
                 String.class,
@@ -245,6 +247,100 @@ class OcrProcessingServiceTransactionTest {
                 fileId)).isEqualTo("00999999");
     }
 
+    @Test
+    void unrecognizedInvoiceTypeRequiresReviewInsteadOfFailingTheFile() {
+        UUID userId = UUID.randomUUID();
+        UUID batchId = UUID.randomUUID();
+        UUID fileId = UUID.randomUUID();
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        jdbc.update("""
+                        insert into users(id, email, password_hash, status, created_at)
+                        values (?, ?, ?, 'ACTIVE', ?)
+                        """,
+                userId,
+                "ocr-unknown@example.com",
+                "$2a$10$01234567890123456789012345678901234567890123456789012",
+                now);
+        jdbc.update("""
+                        insert into import_batches(
+                            id, user_id, batch_number, status, total_files, created_at, updated_at)
+                        values (?, ?, 'B-OCR-UNKNOWN', 'QUEUED', 1, ?, ?)
+                        """,
+                batchId, userId, now, now);
+        insertFile(fileId, userId, batchId, "unknown.png", "key-unknown", now);
+
+        when(credentialService.decryptForUser(userId))
+                .thenReturn(new PaddleCredential("api-key", "secret-key"));
+        when(storage.open(eq(userId), any()))
+                .thenReturn(new ByteArrayInputStream(new byte[]{1, 2, 3}));
+        when(ocrProvider.recognize(any(), any())).thenReturn(new OcrDocument(
+                "req-unknown",
+                "{}",
+                List.of(new OcrField("type", "toll_invoice", new BigDecimal("0.90")))));
+
+        service.processFile(userId, fileId);
+
+        assertThat(fileStatus(fileId)).isEqualTo("REVIEW_REQUIRED");
+        assertThat(jdbc.queryForObject(
+                "select invoice_type from invoices where invoice_file_id = ?",
+                String.class,
+                fileId)).isEqualTo("UNKNOWN");
+        assertThat(jdbc.queryForObject(
+                "select status from invoices where invoice_file_id = ?",
+                String.class,
+                fileId)).isEqualTo("REVIEW_REQUIRED");
+        assertThat(batchStatus(batchId)).isEqualTo("COMPLETED");
+    }
+
+    @Test
+    void retryFailureLeavesPreviousSuccessfulFileAndInvoiceIntact() {
+        UUID userId = UUID.randomUUID();
+        UUID batchId = UUID.randomUUID();
+        UUID fileId = UUID.randomUUID();
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        jdbc.update("""
+                        insert into users(id, email, password_hash, status, created_at)
+                        values (?, ?, ?, 'ACTIVE', ?)
+                        """,
+                userId,
+                "ocr-retry-fail@example.com",
+                "$2a$10$01234567890123456789012345678901234567890123456789012",
+                now);
+        jdbc.update("""
+                        insert into import_batches(
+                            id, user_id, batch_number, status, total_files, created_at, updated_at)
+                        values (?, ?, 'B-OCR-RETRY-FAIL', 'QUEUED', 1, ?, ?)
+                        """,
+                batchId, userId, now, now);
+        insertFile(fileId, userId, batchId, "retry-fail.png", "key-retry-fail", now);
+
+        when(credentialService.decryptForUser(userId))
+                .thenReturn(new PaddleCredential("api-key", "secret-key"));
+        when(storage.open(eq(userId), any()))
+                .thenAnswer(invocation -> new ByteArrayInputStream(new byte[]{1, 2, 3}));
+        when(ocrProvider.recognize(any(), any()))
+                .thenReturn(vatDocument("00123456", "RAW_OCR_FIRST"))
+                .thenThrow(new PaddleServiceUnavailableException());
+
+        service.processFile(userId, fileId);
+        UUID invoiceId = jdbc.queryForObject(
+                "select id from invoices where user_id = ? and invoice_file_id = ?",
+                UUID.class,
+                userId,
+                fileId);
+
+        assertThatThrownBy(() -> reviewService.retry(userId, invoiceId))
+                .isInstanceOf(PaddleServiceUnavailableException.class);
+
+        assertThat(fileStatus(fileId)).isEqualTo("PASSED");
+        assertThat(jdbc.queryForObject(
+                "select invoice_number from invoices where id = ?",
+                String.class,
+                invoiceId)).isEqualTo("00123456");
+        assertThat(count("invoices", fileId)).isEqualTo(1L);
+        assertThat(batchStatus(batchId)).isEqualTo("COMPLETED");
+    }
+
     private void insertFile(
             UUID id,
             UUID userId,
@@ -292,6 +388,13 @@ class OcrProcessingServiceTransactionTest {
     private String fileStatus(UUID id) {
         return jdbc.queryForObject(
                 "select status from invoice_files where id = ?",
+                String.class,
+                id);
+    }
+
+    private String batchStatus(UUID id) {
+        return jdbc.queryForObject(
+                "select status from import_batches where id = ?",
                 String.class,
                 id);
     }
