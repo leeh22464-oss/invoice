@@ -98,7 +98,7 @@ async function retry() {
 </script>
 
 <template>
-  <div class="workbench-wrap">
+  <div class="card workbench-wrap">
     <button
       class="button-quiet queue-toggle"
       type="button"

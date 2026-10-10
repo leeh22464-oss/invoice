@@ -106,32 +106,34 @@ onMounted(() => {
       {{ liveMessage }}
     </p>
     <p v-else-if="state === 'empty'" class="ledger-empty" data-state="empty">暂无已通过票据</p>
-    <table v-else class="ledger-table" data-state="ready">
-      <caption>已通过票据</caption>
-      <thead>
-        <tr>
-          <th>发票类型</th>
-          <th>发票代码</th>
-          <th>发票号码</th>
-          <th>开票日期</th>
-          <th class="num">金额</th>
-          <th class="num">税额</th>
-          <th class="num">价税合计</th>
-          <th>状态</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="row in rows" :key="row.id">
-          <td>{{ invoiceTypeLabel(row.invoiceType) }}</td>
-          <td>{{ row.invoiceCode }}</td>
-          <td>{{ row.invoiceNumber }}</td>
-          <td>{{ row.invoiceDate }}</td>
-          <td class="num">{{ row.amount }}</td>
-          <td class="num">{{ row.tax }}</td>
-          <td class="num">{{ row.total }}</td>
-          <td>{{ statusLabel(row.status) }}</td>
-        </tr>
-      </tbody>
-    </table>
+    <div v-else class="ledger-scroll">
+      <table class="ledger-table" data-state="ready">
+        <caption>已通过票据</caption>
+        <thead>
+          <tr>
+            <th>发票类型</th>
+            <th>发票代码</th>
+            <th>发票号码</th>
+            <th>开票日期</th>
+            <th class="num">金额</th>
+            <th class="num">税额</th>
+            <th class="num">价税合计</th>
+            <th>状态</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="row in rows" :key="row.id">
+            <td>{{ invoiceTypeLabel(row.invoiceType) }}</td>
+            <td>{{ row.invoiceCode }}</td>
+            <td>{{ row.invoiceNumber }}</td>
+            <td>{{ row.invoiceDate }}</td>
+            <td class="num">{{ row.amount }}</td>
+            <td class="num">{{ row.tax }}</td>
+            <td class="num">{{ row.total }}</td>
+            <td>{{ statusLabel(row.status) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </section>
 </template>

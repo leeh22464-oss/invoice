@@ -11,7 +11,7 @@ const xlsxHref = computed(() => props.query ? `/api/ledger/export.xlsx?${props.q
 
 <template>
   <nav class="export-menu" aria-label="导出">
-    <a data-export="csv" :href="csvHref">导出 CSV</a>
-    <a data-export="xlsx" :href="xlsxHref">导出 Excel</a>
+    <a class="button-quiet" data-export="csv" :href="csvHref">导出 CSV</a>
+    <a class="button-quiet" data-export="xlsx" :href="xlsxHref">导出 Excel</a>
   </nav>
 </template>

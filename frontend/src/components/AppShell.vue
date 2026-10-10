@@ -26,19 +26,22 @@ async function logout() {
 
 <template>
   <div class="shell">
-    <div class="shell-bar">
-      <nav class="shell-nav" aria-label="工作区">
+    <header class="app-bar">
+      <router-link class="app-brand" to="/imports">智能核票</router-link>
+      <nav class="app-nav" aria-label="工作区">
         <router-link to="/imports">导入</router-link>
         <router-link to="/review">复核</router-link>
         <router-link to="/ledger">台账</router-link>
         <router-link to="/settings/ocr">凭证</router-link>
       </nav>
-      <div class="shell-tools">
+      <div class="app-account">
         <p class="shell-user">{{ session.user?.email }}</p>
         <button class="button-quiet" type="button" :disabled="submitting" @click="logout">退出登录</button>
       </div>
+    </header>
+    <div class="shell-main">
+      <p class="live-error" aria-live="assertive">{{ liveMessage }}</p>
+      <router-view />
     </div>
-    <p class="live-error" aria-live="assertive">{{ liveMessage }}</p>
-    <router-view />
   </div>
 </template>

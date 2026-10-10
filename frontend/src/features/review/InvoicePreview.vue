@@ -141,7 +141,7 @@ onUnmounted(() => {
     <h3>原票</h3>
     <img v-if="kind === 'image'" :src="objectUrl" alt="票据预览" />
     <p v-else-if="kind === 'file'">
-      <a :href="`/api/invoices/${invoiceId}/file`">{{ filename }}</a>
+      <a class="button-quiet" :href="`/api/invoices/${invoiceId}/file`">{{ filename }}</a>
     </p>
     <p v-else-if="kind === 'error'" class="preview-error" aria-live="assertive">{{ errorMessage }}</p>
     <p v-else class="muted">正在读取原票</p>

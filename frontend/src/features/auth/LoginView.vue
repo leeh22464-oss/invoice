@@ -33,6 +33,7 @@ async function onSubmit() {
 
 <template>
   <section class="card auth-card">
+    <p class="brand-mark">智能核票</p>
     <h2>登录</h2>
     <p class="lede">使用邮箱进入核票工作区。</p>
     <form @submit.prevent="onSubmit">
@@ -65,6 +66,7 @@ async function onSubmit() {
       <p class="live-error" aria-live="assertive">{{ liveMessage }}</p>
       <button class="button-primary" type="submit" :disabled="submitting">登录</button>
     </form>
-    <p class="switch-auth">还没有账号？<router-link to="/register">注册</router-link></p>
+    <p class="switch-auth">还没有账号？</p>
+    <router-link class="button-quiet" to="/register">注册</router-link>
   </section>
 </template>

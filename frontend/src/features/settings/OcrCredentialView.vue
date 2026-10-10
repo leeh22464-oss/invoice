@@ -114,11 +114,11 @@ async function removeCredential() {
 <template>
   <section class="card settings-card">
     <h2>OCR 凭证</h2>
-    <p class="lede">保存后只显示掩码和验证结果。Secret Key 不会回填。</p>
+    <p class="lede">填写 PaddleOCR 任务页里的接口地址和访问令牌。保存后只显示地址掩码和验证结果，访问令牌不会回填。</p>
 
     <dl v-if="status?.configured" class="status-list" aria-label="当前凭证">
       <div>
-        <dt>API Key</dt>
+        <dt>接口地址</dt>
         <dd>{{ status.apiKeyMask }}</dd>
       </div>
       <div>
@@ -136,11 +136,11 @@ async function removeCredential() {
 
     <form @submit.prevent="save">
       <div class="field">
-        <label for="api-key">API Key</label>
+        <label for="api-key">接口地址</label>
         <input
           id="api-key"
           name="apiKey"
-          type="text"
+          type="url"
           autocomplete="off"
           required
           v-model="apiKey"
@@ -149,7 +149,7 @@ async function removeCredential() {
         <p v-if="fieldErrors.apiKey" id="api-key-error" class="field-error">{{ fieldErrors.apiKey }}</p>
       </div>
       <div class="field">
-        <label for="secret-key">Secret Key</label>
+        <label for="secret-key">访问令牌</label>
         <input
           id="secret-key"
           name="secretKey"
