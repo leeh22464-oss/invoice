@@ -23,8 +23,6 @@ class InvoiceNormalizerTest {
         normalizer = new InvoiceNormalizer();
         parser = new BaiduPaddleOcrProvider(
                 null,
-                null,
-                "unused",
                 file -> new byte[0],
                 java.time.Duration.ZERO,
                 ignored -> {

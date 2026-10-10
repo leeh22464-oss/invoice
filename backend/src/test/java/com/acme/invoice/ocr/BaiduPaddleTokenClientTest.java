@@ -9,11 +9,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -25,14 +21,15 @@ class BaiduPaddleTokenClientTest {
     private volatile int responseStatus;
     private volatile String responseBody;
     private volatile int responseDelayMillis;
-    private volatile String receivedQuery;
+    private volatile String authorization;
     private volatile String receivedBody;
+    private String apiUrl;
 
     @BeforeEach
     void setUp() throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/oauth/2.0/token", exchange -> {
-            receivedQuery = exchange.getRequestURI().getRawQuery();
+        server.createContext("/ocr", exchange -> {
+            authorization = exchange.getRequestHeaders().getFirst("Authorization");
             receivedBody = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             try {
                 Thread.sleep(responseDelayMillis);
@@ -46,10 +43,8 @@ class BaiduPaddleTokenClientTest {
             exchange.close();
         });
         server.start();
-        client = new BaiduPaddleTokenClient(
-                WebClient.builder(),
-                "http://127.0.0.1:" + server.getAddress().getPort() + "/oauth/2.0/token",
-                2_000);
+        apiUrl = "http://127.0.0.1:" + server.getAddress().getPort() + "/ocr";
+        client = new BaiduPaddleTokenClient(WebClient.builder(), 2_000);
     }
 
     @AfterEach
@@ -58,48 +53,42 @@ class BaiduPaddleTokenClientTest {
     }
 
     @Test
-    void acceptsNonblankAccessTokenAndSendsRequiredParameters() {
-        respond(200, "{\"access_token\":\"token-value\"}");
+    void acceptsHttp200AndSendsTokenHeader() {
+        respond(200, "{\"errorCode\":0,\"errorMsg\":\"Success\",\"result\":{\"ocrResults\":[]}}");
 
-        assertThat(client.validate("client-id", "client-secret"))
+        assertThat(client.validate(apiUrl, "access-token"))
                 .isEqualTo(new CredentialValidation(true, "Credentials are valid"));
-        assertThat(receivedQuery).isNull();
-        assertThat(formParameters(receivedBody))
-                .containsEntry("grant_type", "client_credentials")
-                .containsEntry("client_id", "client-id")
-                .containsEntry("client_secret", "client-secret");
+        assertThat(authorization).isEqualTo("token access-token");
+        assertThat(receivedBody).contains("\"fileType\":1");
+        assertThat(receivedBody).doesNotContain("access-token");
     }
 
     @Test
-    void mapsBadRequestUnauthorizedAndJsonErrorsToInvalid() {
-        respond(400, "{\"error\":\"invalid_client\",\"error_description\":\"bad\"}");
-        assertThat(client.validate("bad-api", "bad-secret").valid()).isFalse();
-
+    void mapsUnauthorizedAndAuthErrorCodesToInvalid() {
         respond(401, "");
-        assertThat(client.validate("bad-api", "bad-secret").valid()).isFalse();
+        assertThat(client.validate(apiUrl, "bad-token").valid()).isFalse();
 
-        respond(200, "{\"error\":\"invalid_client\"}");
-        assertThat(client.validate("bad-api", "bad-secret").valid()).isFalse();
+        respond(403, "{\"errorCode\":403}");
+        assertThat(client.validate(apiUrl, "bad-token").valid()).isFalse();
 
-        respond(403, "{\"error\":\"invalid_client\",\"error_description\":\"bad\"}");
-        assertThat(client.validate("bad-api", "bad-secret").valid()).isFalse();
+        respond(200, "{\"errorCode\":403,\"errorMsg\":\"token invalid\"}");
+        assertThat(client.validate(apiUrl, "bad-token").valid()).isFalse();
+
+        assertThat(client.validate("not-a-url", "bad-token").valid()).isFalse();
     }
 
     @Test
     void mapsRateLimitServerFailureAndTimeoutWithoutLeakingSecrets() {
         respond(429, "raw-secret-response");
-        assertUnavailableWithoutSecrets("api-429", "secret-429");
+        assertUnavailableWithoutSecrets();
 
         respond(503, "raw-secret-response");
-        assertUnavailableWithoutSecrets("api-503", "secret-503");
+        assertUnavailableWithoutSecrets();
 
+        client = new BaiduPaddleTokenClient(WebClient.builder(), 200);
         respond(200, "{}");
-        client = new BaiduPaddleTokenClient(
-                WebClient.builder(),
-                "http://127.0.0.1:" + server.getAddress().getPort() + "/oauth/2.0/token",
-                200);
         responseDelayMillis = 500;
-        assertUnavailableWithoutSecrets("api-timeout", "secret-timeout");
+        assertUnavailableWithoutSecrets();
     }
 
     private void respond(int status, String body) {
@@ -108,19 +97,11 @@ class BaiduPaddleTokenClientTest {
         responseDelayMillis = 0;
     }
 
-    private Map<String, String> formParameters(String body) {
-        return Arrays.stream(body.split("&"))
-                .map(part -> part.split("=", 2))
-                .collect(Collectors.toMap(
-                        pair -> URLDecoder.decode(pair[0], StandardCharsets.UTF_8),
-                        pair -> URLDecoder.decode(pair[1], StandardCharsets.UTF_8)));
-    }
-
-    private void assertUnavailableWithoutSecrets(String apiKey, String secretKey) {
-        assertThatThrownBy(() -> client.validate(apiKey, secretKey))
+    private void assertUnavailableWithoutSecrets() {
+        assertThatThrownBy(() -> client.validate(apiUrl, "secret-token"))
                 .isInstanceOf(PaddleServiceUnavailableException.class)
-                .hasMessageNotContaining(apiKey)
-                .hasMessageNotContaining(secretKey)
+                .hasMessageNotContaining(apiUrl)
+                .hasMessageNotContaining("secret-token")
                 .hasMessageNotContaining("raw-secret-response");
     }
 }

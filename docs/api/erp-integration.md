@@ -2,7 +2,7 @@
 
 当前版本只提供下面两个接口。当前 API 没有分页：`GET /api/erp/invoices` 一次返回该用户全部符合条件的发票，响应体是 JSON 数组，没有页码、页大小或总数包装。
 
-本版本的推送客户端不会调用外部 ERP。`erp_push_receipts` 表中的回执行就是幂等记录。
+本版本会把已通过票据 POST 到 `APP_ERP_PUSH_URL`。请求体是 JSON，包含 `invoiceId`、`invoiceType`、`invoiceCode`、`invoiceNumber`、`invoiceDate`、`amount`、`tax`、`total`。如果设置了 `APP_ERP_PUSH_TOKEN`，请求头为 `Authorization: Bearer <token>`。外部系统返回 2xx 才记为推送成功；失败时本次回执会回滚，可以用同一个 `Idempotency-Key` 再推一次。未配置地址时返回 `409`，`code` 为 `ERP_NOT_CONFIGURED`。地址不是 `http` 或 `https` 时返回 `400`，`code` 为 `ERP_PUSH_URL_INVALID`。外部系统拒绝或无法连接时返回 `502`，`code` 为 `ERP_PUSH_FAILED`。
 
 ## 认证
 

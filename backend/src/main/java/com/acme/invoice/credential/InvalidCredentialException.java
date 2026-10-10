@@ -7,6 +7,6 @@ public class InvalidCredentialException extends CredentialException {
     public InvalidCredentialException() {
         super(HttpStatus.UNPROCESSABLE_ENTITY,
                 "INVALID_OCR_CREDENTIALS",
-                "OCR credentials are invalid");
+                "接口地址或访问令牌无效");
     }
 }

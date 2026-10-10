@@ -23,6 +23,6 @@ public class CredentialExceptionHandler {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(new ApiError(
                         "PADDLE_SERVICE_UNAVAILABLE",
-                        "OCR credential validation service is unavailable"));
+                        "OCR 服务暂时不可用，请稍后再试"));
     }
 }

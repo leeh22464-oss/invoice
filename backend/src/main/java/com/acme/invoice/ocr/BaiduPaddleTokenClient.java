@@ -2,46 +2,55 @@ package com.acme.invoice.ocr;
 
 import com.acme.invoice.credential.CredentialValidation;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
-import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
+import java.net.URI;
 import java.time.Duration;
 
 @Component
 @Profile("!smoke")
 public class BaiduPaddleTokenClient implements PaddleTokenClient {
 
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final String PROBE_PNG =
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
     private static final CredentialValidation VALID =
             new CredentialValidation(true, "Credentials are valid");
     private static final CredentialValidation INVALID =
             new CredentialValidation(false, "Credentials are invalid");
 
     private final WebClient webClient;
-    private final String tokenUrl;
     private final Duration timeout;
 
     public BaiduPaddleTokenClient(
             WebClient.Builder builder,
-            @Value("${app.paddle.token-url:https://aip.baidubce.com/oauth/2.0/token}")
-            String tokenUrl,
             @Value("${app.paddle.timeout-ms:10000}") int timeoutMillis) {
         this.webClient = builder.build();
-        this.tokenUrl = tokenUrl;
         this.timeout = Duration.ofMillis(timeoutMillis);
     }
 
     @Override
-    public CredentialValidation validate(String apiKey, String secretKey) {
+    public CredentialValidation validate(String apiUrl, String token) {
+        if (!isHttpUrl(apiUrl) || token == null || token.isBlank()) {
+            return INVALID;
+        }
         try {
-            TokenOutcome outcome = requestToken(apiKey, secretKey);
-            return outcome.token() == null ? INVALID : VALID;
+            Boolean accepted = webClient.post()
+                    .uri(URI.create(apiUrl.trim()))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .header("Authorization", "token " + token.trim())
+                    .bodyValue("{\"file\":\"" + PROBE_PNG + "\",\"fileType\":1}")
+                    .exchangeToMono(this::mapProbe)
+                    .block(timeout);
+            return Boolean.TRUE.equals(accepted) ? VALID : INVALID;
         } catch (OcrAuthenticationException exception) {
             return INVALID;
         } catch (PaddleServiceUnavailableException exception) {
@@ -52,86 +61,62 @@ public class BaiduPaddleTokenClient implements PaddleTokenClient {
     }
 
     @Override
-    public String obtainAccessToken(String apiKey, String secretKey) {
-        try {
-            TokenOutcome outcome = requestToken(apiKey, secretKey);
-            if (outcome.token() == null || outcome.token().isBlank()) {
-                throw new OcrAuthenticationException();
-            }
-            return outcome.token();
-        } catch (OcrAuthenticationException | PaddleServiceUnavailableException exception) {
-            throw exception;
-        } catch (RuntimeException exception) {
-            throw unavailable();
+    public String obtainAccessToken(String apiUrl, String token) {
+        CredentialValidation validation = validate(apiUrl, token);
+        if (!validation.valid()) {
+            throw new OcrAuthenticationException();
         }
+        return token.trim();
     }
 
-    private TokenOutcome requestToken(String apiKey, String secretKey) {
-        TokenOutcome outcome = webClient.post()
-                .uri(tokenUrl)
-                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                .body(BodyInserters.fromFormData("grant_type", "client_credentials")
-                        .with("client_id", apiKey)
-                        .with("client_secret", secretKey))
-                .exchangeToMono(this::mapTokenResponse)
-                .block(timeout);
-        if (outcome == null) {
-            throw unavailable();
-        }
-        return outcome;
-    }
-
-    private Mono<TokenOutcome> mapTokenResponse(ClientResponse response) {
+    private Mono<Boolean> mapProbe(ClientResponse response) {
         HttpStatusCode status = response.statusCode();
-        if (status.value() == 400 || status.value() == 401) {
-            return response.releaseBody().thenReturn(TokenOutcome.invalid());
+        if (status.value() == 401 || status.value() == 403) {
+            return response.releaseBody().thenReturn(false);
         }
         if (status.value() == 429 || status.is5xxServerError()) {
             return response.releaseBody().then(Mono.error(unavailable()));
         }
         if (status.isError()) {
-            return response.bodyToMono(JsonNode.class)
-                    .defaultIfEmpty(com.fasterxml.jackson.databind.node.NullNode.getInstance())
-                    .flatMap(json -> hasCredentialError(json)
-                            ? Mono.just(TokenOutcome.invalid())
-                            : Mono.error(unavailable()));
+            return response.releaseBody().then(Mono.error(unavailable()));
         }
-        return response.bodyToMono(JsonNode.class)
-                .defaultIfEmpty(com.fasterxml.jackson.databind.node.NullNode.getInstance())
-                .map(this::tokenFrom);
+        return response.bodyToMono(String.class)
+                .defaultIfEmpty("")
+                .map(this::acceptedBody);
     }
 
-    private TokenOutcome tokenFrom(JsonNode json) {
-        if (hasCredentialError(json)) {
-            return TokenOutcome.invalid();
+    private boolean acceptedBody(String body) {
+        if (body == null || body.isBlank()) {
+            return true;
         }
-        JsonNode accessToken = json.get("access_token");
-        if (accessToken == null || accessToken.asText("").isBlank()) {
-            return TokenOutcome.invalid();
+        try {
+            JsonNode json = MAPPER.readTree(body);
+            JsonNode errorCode = json.get("errorCode");
+            if (errorCode != null && errorCode.isNumber()) {
+                int code = errorCode.asInt();
+                return code != 401 && code != 403;
+            }
+            return true;
+        } catch (Exception exception) {
+            return true;
         }
-        return TokenOutcome.valid(accessToken.asText());
     }
 
-    private boolean hasCredentialError(JsonNode json) {
-        return hasNonblank(json, "error") || hasNonblank(json, "error_description");
-    }
-
-    private boolean hasNonblank(JsonNode json, String field) {
-        JsonNode value = json.get(field);
-        return value != null && !value.asText("").isBlank();
+    private static boolean isHttpUrl(String apiUrl) {
+        if (apiUrl == null || apiUrl.isBlank()) {
+            return false;
+        }
+        try {
+            URI uri = URI.create(apiUrl.trim());
+            String scheme = uri.getScheme();
+            return uri.getHost() != null
+                    && ("https".equalsIgnoreCase(scheme) || "http".equalsIgnoreCase(scheme));
+        } catch (RuntimeException exception) {
+            return false;
+        }
     }
 
     private static PaddleServiceUnavailableException unavailable() {
         return new PaddleServiceUnavailableException();
-    }
-
-    private record TokenOutcome(String token) {
-        static TokenOutcome valid(String token) {
-            return new TokenOutcome(token);
-        }
-
-        static TokenOutcome invalid() {
-            return new TokenOutcome(null);
-        }
     }
 }

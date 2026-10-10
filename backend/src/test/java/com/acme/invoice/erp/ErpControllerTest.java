@@ -31,6 +31,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.reset;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -80,6 +81,8 @@ class ErpControllerTest {
         jdbc.update("delete from invoice_files");
         jdbc.update("delete from import_batches");
         jdbc.update("delete from users");
+        reset(pushClient);
+        doNothing().when(pushClient).push(any(), any());
     }
 
     @Test

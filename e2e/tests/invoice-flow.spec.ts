@@ -36,10 +36,10 @@ test('invoice workflow covers review, duplicate block, export, and cross-user de
   await expect.poll(async () => ownerContext.cookies()).toEqual(expect.arrayContaining([
     expect.objectContaining({ name: 'XSRF-TOKEN', secure: false }),
   ]))
-  await owner.getByLabel('API Key').fill('abcdefgh1234')
-  await owner.getByLabel('Secret Key').fill('e2e-secret-key')
+  await owner.getByLabel('接口地址').fill('http://127.0.0.1:4010/ocr')
+  await owner.getByLabel('访问令牌').fill('e2e-secret-key')
   await owner.getByRole('button', { name: '保存' }).click()
-  await expect(owner.getByText('abcd****1234')).toBeVisible()
+  await expect(owner.getByText('http****/ocr')).toBeVisible()
 
   await owner.getByRole('link', { name: '导入' }).click()
   await owner.locator('#import-files').setInputFiles([jpeg, png])

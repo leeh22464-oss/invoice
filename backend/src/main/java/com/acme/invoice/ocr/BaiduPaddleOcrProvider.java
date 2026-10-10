@@ -6,10 +6,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
-import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Mono;
 
 import java.net.URI;
@@ -28,23 +26,17 @@ public class BaiduPaddleOcrProvider implements OcrProvider {
     private static final int MAX_ATTEMPTS = 3;
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    private final PaddleTokenClient tokenClient;
     private final WebClient webClient;
-    private final String recognizeUrl;
     private final Function<StoredFile, byte[]> contentLoader;
     private final Duration timeout;
     private final Consumer<Duration> sleeper;
 
     public BaiduPaddleOcrProvider(
-            PaddleTokenClient tokenClient,
             WebClient.Builder builder,
-            String recognizeUrl,
             Function<StoredFile, byte[]> contentLoader,
             Duration timeout,
             Consumer<Duration> sleeper) {
-        this.tokenClient = tokenClient;
         this.webClient = builder == null ? null : builder.build();
-        this.recognizeUrl = recognizeUrl;
         this.contentLoader = contentLoader;
         this.timeout = timeout;
         this.sleeper = sleeper;
@@ -52,18 +44,17 @@ public class BaiduPaddleOcrProvider implements OcrProvider {
 
     @Override
     public OcrDocument recognize(PaddleCredential credential, StoredFile file) {
-        String accessToken = tokenClient.obtainAccessToken(credential.apiKey(), credential.secretKey());
         byte[] bytes = contentLoader.apply(file);
         if (bytes == null) {
             throw new PaddleServiceUnavailableException();
         }
-        String payloadField = "application/pdf".equals(file.mediaType()) ? "pdf_file" : "image";
+        int fileType = "application/pdf".equals(file.mediaType()) ? 0 : 1;
         String encoded = Base64.getEncoder().encodeToString(bytes);
 
         RuntimeException lastFailure = null;
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             try {
-                String body = invoke(accessToken, payloadField, encoded);
+                String body = invoke(credential.apiKey(), credential.secretKey(), fileType, encoded);
                 return parseResponse(body);
             } catch (OcrAuthenticationException exception) {
                 throw exception;
@@ -82,6 +73,9 @@ public class BaiduPaddleOcrProvider implements OcrProvider {
     public OcrDocument parseResponse(String rawJson) {
         try {
             JsonNode root = MAPPER.readTree(rawJson);
+            if (root.has("result") || root.has("ocrResults")) {
+                return PaddleOcrV5Parser.parse(root, rawJson);
+            }
             String requestId = textOrNumber(root.get("log_id"));
             List<OcrField> fields = new ArrayList<>();
             JsonNode words = root.get("words_result");
@@ -115,16 +109,14 @@ public class BaiduPaddleOcrProvider implements OcrProvider {
         }
     }
 
-    private String invoke(String accessToken, String payloadField, String encoded) {
+    private String invoke(String apiUrl, String token, int fileType, String encoded) {
         try {
+            String payload = "{\"file\":\"" + encoded + "\",\"fileType\":" + fileType + "}";
             String body = webClient.post()
-                    .uri(UriComponentsBuilder.fromUri(URI.create(recognizeUrl))
-                            .queryParam("access_token", accessToken)
-                            .build(true)
-                            .toUri())
-                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                    .body(BodyInserters.fromFormData(payloadField, encoded)
-                            .with("probability", "true"))
+                    .uri(URI.create(apiUrl))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .header("Authorization", "token " + token)
+                    .bodyValue(payload)
                     .exchangeToMono(this::mapBody)
                     .block(timeout);
             if (body == null) {
@@ -154,7 +146,7 @@ public class BaiduPaddleOcrProvider implements OcrProvider {
 
     private Mono<String> mapBody(ClientResponse response) {
         HttpStatusCode status = response.statusCode();
-        if (status.value() == 401) {
+        if (status.value() == 401 || status.value() == 403) {
             return response.releaseBody().then(Mono.error(new OcrAuthenticationException()));
         }
         if (status.value() == 429 || status.is5xxServerError()) {

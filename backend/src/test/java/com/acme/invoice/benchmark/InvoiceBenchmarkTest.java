@@ -83,7 +83,7 @@ class InvoiceBenchmarkTest {
 
     private final ObjectMapper mapper = new ObjectMapper();
     private final BaiduPaddleOcrProvider parser = new BaiduPaddleOcrProvider(
-            null, null, "unused", file -> new byte[0], Duration.ZERO, ignored -> {
+            null, file -> new byte[0], Duration.ZERO, ignored -> {
             });
 
     @BeforeEach

@@ -24,8 +24,8 @@ Copy-Item .env.example .env
 | 变量 | 说明 |
 | --- | --- |
 | `APP_JWT_SECURE_COOKIE` | 本地 HTTP 设为 `false`。未设置时默认为 `true`，Cookie 只在 HTTPS 下发送 |
-| `APP_PADDLE_TOKEN_URL` | 百度 Paddle 取 token 的地址。未设置时使用 `https://aip.baidubce.com/oauth/2.0/token` |
-| `APP_PADDLE_RECOGNIZE_URL` | 百度 Paddle 发票识别地址。未设置时使用 `https://aip.baidubce.com/rest/2.0/ocr/v1/multiple_invoice` |
+| `APP_ERP_PUSH_URL` | 已通过票据要推送到的 ERP 地址，必须是 `http` 或 `https`。未设置时推送会返回「尚未配置 ERP 推送地址」 |
+| `APP_ERP_PUSH_TOKEN` | 可选。设置后，推送请求带 `Authorization: Bearer` |
 
 生成密钥时使用下面这种形状，不要把示例输出当作真实密钥：
 
@@ -69,9 +69,17 @@ cd frontend; npm install; npm run dev
 
 默认端口：Postgres `5432`，后端 `8080`，前端 `5173`。浏览器打开 `http://127.0.0.1:5173`。
 
-## 百度 Paddle 凭证
+开发服务已经占用 `5432` 或 `8080` 时，不要同时再起下面这套。整包把数据库、后端和页面放在一起，页面从 `http://127.0.0.1:8088` 进入，`/api` 由页面容器转到后端。先停掉本机的 `bootRun` 和 Vite。
 
-用户在设置页 `/settings/ocr` 填写自己的百度 Paddle API Key 和 Secret Key。服务端用 AES-GCM 保存这两项。查询凭证的响应只返回掩码，不返回原文。
+```powershell
+docker compose -f compose.prod.yaml up -d --build
+```
+
+## PaddleOCR 凭证
+
+用户在设置页 `/settings/ocr` 填写 [PP-OCRv5](https://ai.baidu.com/ai-doc/AISTUDIO/Kmfl2ycs0) 的接口地址和访问令牌。这两项从 [PaddleOCR 任务页](https://aistudio.baidu.com/paddleocr/task) 的调用示例复制。先保存，再测试连接。服务端用 AES-GCM 保存它们。查询凭证的响应只返回接口地址掩码，不返回令牌。识别请求使用请求头 `Authorization: token <访问令牌>`。
+
+这是通用文字识别。系统按票面文字抽取代码、号码、日期和金额；标签和值写在同一行或相邻行时可以读出。它不是税务结构化发票接口，不能当作 98% 字段准确率的保证。
 
 ## 测试
 
@@ -94,4 +102,4 @@ Copy-Item -Recurse $env:APP_STORAGE_ROOT .\storage-backup
 
 ## ERP
 
-对接说明见 [docs/api/erp-integration.md](docs/api/erp-integration.md)。
+已通过票据推送到 `APP_ERP_PUSH_URL`。对接字段和错误码见 [docs/api/erp-integration.md](docs/api/erp-integration.md)。

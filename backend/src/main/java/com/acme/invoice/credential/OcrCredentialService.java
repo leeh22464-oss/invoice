@@ -60,7 +60,7 @@ public class OcrCredentialService {
                 .orElseThrow(() -> new CredentialException(
                         HttpStatus.NOT_FOUND,
                         "OCR_CREDENTIALS_NOT_FOUND",
-                        "OCR credentials are not configured"));
+                        "请先保存接口地址和访问令牌，再测试连接"));
         String apiKey = cipher.decrypt(
                 new EncryptedSecret(stored.getApiKeyIv(), stored.getApiKeyCiphertext()));
         String secretKey = cipher.decrypt(
@@ -79,7 +79,7 @@ public class OcrCredentialService {
                 .orElseThrow(() -> new CredentialException(
                         HttpStatus.NOT_FOUND,
                         "OCR_CREDENTIALS_NOT_FOUND",
-                        "OCR credentials are not configured"));
+                        "尚未配置 OCR 凭证"));
         String apiKey = cipher.decrypt(
                 new EncryptedSecret(stored.getApiKeyIv(), stored.getApiKeyCiphertext()));
         String secretKey = cipher.decrypt(

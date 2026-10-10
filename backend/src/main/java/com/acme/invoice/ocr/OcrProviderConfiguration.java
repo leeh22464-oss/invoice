@@ -14,16 +14,11 @@ public class OcrProviderConfiguration {
 
     @Bean
     OcrProvider baiduPaddleOcrProvider(
-            PaddleTokenClient tokenClient,
             WebClient.Builder builder,
             StoredFileContentHolder contentHolder,
-            @Value("${app.paddle.recognize-url:https://aip.baidubce.com/rest/2.0/ocr/v1/multiple_invoice}")
-            String recognizeUrl,
             @Value("${app.paddle.timeout-ms:10000}") int timeoutMillis) {
         return new BaiduPaddleOcrProvider(
-                tokenClient,
                 builder,
-                recognizeUrl,
                 file -> {
                     byte[] bytes = contentHolder.take();
                     if (bytes == null) {
