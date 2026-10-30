@@ -28,7 +28,7 @@ class BaiduPaddleTokenClientTest {
     @BeforeEach
     void setUp() throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/ocr", exchange -> {
+        server.createContext("/llm/lmapi/v3/models", exchange -> {
             authorization = exchange.getRequestHeaders().getFirst("Authorization");
             receivedBody = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             try {
@@ -43,7 +43,7 @@ class BaiduPaddleTokenClientTest {
             exchange.close();
         });
         server.start();
-        apiUrl = "http://127.0.0.1:" + server.getAddress().getPort() + "/ocr";
+        apiUrl = "http://127.0.0.1:" + server.getAddress().getPort() + "/llm/lmapi/v3";
         client = new BaiduPaddleTokenClient(WebClient.builder(), 2_000);
     }
 
@@ -54,12 +54,11 @@ class BaiduPaddleTokenClientTest {
 
     @Test
     void acceptsHttp200AndSendsTokenHeader() {
-        respond(200, "{\"errorCode\":0,\"errorMsg\":\"Success\",\"result\":{\"ocrResults\":[]}}");
+        respond(200, "{\"object\":\"list\",\"data\":[{\"id\":\"ernie-4.5-turbo-vl\"}]}");
 
         assertThat(client.validate(apiUrl, "access-token"))
                 .isEqualTo(new CredentialValidation(true, "Credentials are valid"));
-        assertThat(authorization).isEqualTo("token access-token");
-        assertThat(receivedBody).contains("\"fileType\":1");
+        assertThat(authorization).isEqualTo("Bearer access-token");
         assertThat(receivedBody).doesNotContain("access-token");
     }
 
@@ -75,6 +74,20 @@ class BaiduPaddleTokenClientTest {
         assertThat(client.validate(apiUrl, "bad-token").valid()).isFalse();
 
         assertThat(client.validate("not-a-url", "bad-token").valid()).isFalse();
+        assertThat(LlmServiceAddress.chatCompletions("https://aistudio.baidu.com/account/accessToken").toString())
+                .isEqualTo("https://aistudio.baidu.com/llm/lmapi/v3/chat/completions");
+        assertThat(LlmServiceAddress.base("https://aistudio.baidu.com/llm/lmapi/v3/"))
+                .isEqualTo("https://aistudio.baidu.com/llm/lmapi/v3");
+    }
+
+    @Test
+    void rejectsAnHtmlPageAndAnEmptyObjectAsTheOcrEndpoint() {
+        respond(200, "<!DOCTYPE html><html><title>accessToken</title></html>");
+        assertThat(client.validate(apiUrl, "access-token"))
+                .isEqualTo(new CredentialValidation(false, OcrEndpointException.MESSAGE));
+
+        respond(200, "{}");
+        assertThat(client.validate(apiUrl, "access-token").valid()).isFalse();
     }
 
     @Test

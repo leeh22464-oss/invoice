@@ -74,7 +74,7 @@ function mountUpload() {
 function dropFiles(wrapper: ReturnType<typeof mountUpload>, files: File[]) {
   const event = new Event('drop', { bubbles: true, cancelable: true })
   Object.defineProperty(event, 'dataTransfer', { value: { files } })
-  wrapper.get('[data-dropzone]').element.dispatchEvent(event)
+  wrapper.get('[data-dropzone] label').element.dispatchEvent(event)
 }
 
 function chooseFiles(wrapper: ReturnType<typeof mountUpload>, files: File[]) {
@@ -138,6 +138,29 @@ describe('UploadPanel', () => {
     await flushPromises()
     expect(wrapper.text()).not.toContain(COUNT_ERROR)
     expect(calls).toHaveLength(0)
+  })
+
+  it('uploads a batch when browsers report generic or alias media types', async () => {
+    const calls: InternalAxiosRequestConfig[] = []
+    api.defaults.adapter = async (config) => {
+      calls.push(config)
+      return jsonResponse(config, 201, { id: 'batch-3', totalFiles: 3, status: 'QUEUED' })
+    }
+
+    const wrapper = mountUpload()
+    chooseFiles(wrapper, [
+      fileOf('a.pdf', 'application/octet-stream'),
+      fileOf('b.jpg', 'image/jpg'),
+      fileOf('c.png', 'image/png'),
+    ])
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain(TYPE_ERROR)
+    expect(wrapper.text()).toContain('已选择 3 个文件')
+    const posted = (calls[0]?.data as FormData).getAll('files') as File[]
+    expect(posted.map((file) => file.name)).toEqual(['a.pdf', 'b.jpg', 'c.png'])
+    expect(posted.map((file) => file.type)).toEqual(['application/pdf', 'image/jpeg', 'image/png'])
   })
 
   it('posts files through the api client and polls the batch when SSE fails', async () => {
@@ -275,11 +298,11 @@ describe('UploadPanel', () => {
       href: link.attributes('href'),
     }))
     expect(links).toEqual(expect.arrayContaining([
-      { text: '导入', href: '/imports' },
+      { text: '添加发票', href: '/imports' },
       { text: '复核', href: '/review' },
       { text: '台账', href: '/ledger' },
       { text: '凭证', href: '/settings/ocr' },
     ]))
-    expect(wrapper.findAll('.button-primary')).toHaveLength(0)
+    expect(wrapper.findAll('.button-primary')).toHaveLength(1)
   })
 })

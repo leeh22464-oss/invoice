@@ -29,12 +29,11 @@ public class InvoiceNormalizer {
     public NormalizedInvoice normalize(OcrDocument document) {
         Map<String, OcrField> byName = index(document);
         String providerType = text(byName, "type");
-        InvoiceType type = resolveType(providerType, text(byName, "InvoiceType"));
-
         String code = firstNonBlank(byName,
                 "InvoiceCode", "invoice_code");
         String number = firstNonBlank(byName,
                 "InvoiceNum", "invoice_number", "invoice_num", "ticket_num");
+        InvoiceType type = resolveType(providerType, text(byName, "InvoiceType"), number);
         LocalDate date = parseDate(firstNonBlank(byName,
                 "InvoiceDate", "invoice_date", "Date", "date", "start_date"));
 
@@ -80,7 +79,7 @@ public class InvoiceNormalizer {
         return new NormalizedInvoice(type, blankToNull(code), blankToNull(number), date, amount, tax, total, Map.copyOf(fields));
     }
 
-    private static InvoiceType resolveType(String providerType, String invoiceType) {
+    private static InvoiceType resolveType(String providerType, String invoiceType, String number) {
         if ("train_ticket".equals(providerType)) {
             return InvoiceType.RAILWAY;
         }
@@ -98,19 +97,28 @@ public class InvoiceNormalizer {
         }
         if ("vat_invoice".equals(providerType) || providerType == null) {
             if (invoiceType != null) {
-                if (invoiceType.contains("专用")) {
-                    return InvoiceType.VAT_SPECIAL;
-                }
                 if (invoiceType.contains("电子")) {
                     return InvoiceType.ELECTRONIC;
+                }
+                if (invoiceType.contains("专用")) {
+                    return InvoiceType.VAT_SPECIAL;
                 }
                 if (invoiceType.contains("普通")) {
                     return InvoiceType.VAT_ORDINARY;
                 }
             }
+            if (isFullElectronicNumber(number)) {
+                return InvoiceType.ELECTRONIC;
+            }
             return InvoiceType.UNKNOWN;
         }
         return InvoiceType.UNKNOWN;
+    }
+
+    private static boolean isFullElectronicNumber(String number) {
+        return number != null
+                && number.length() == 20
+                && number.chars().allMatch(Character::isDigit);
     }
 
     private static Map<String, OcrField> index(OcrDocument document) {
@@ -164,6 +172,21 @@ public class InvoiceNormalizer {
             return null;
         }
         String value = raw.trim();
+        java.util.regex.Matcher chineseDate = java.util.regex.Pattern
+                .compile("(\\d{4})年(\\d{1,2})月(\\d{1,2})日")
+                .matcher(value);
+        if (chineseDate.find()) {
+            return LocalDate.of(
+                    Integer.parseInt(chineseDate.group(1)),
+                    Integer.parseInt(chineseDate.group(2)),
+                    Integer.parseInt(chineseDate.group(3)));
+        }
+        java.util.regex.Matcher isoDate = java.util.regex.Pattern
+                .compile("(\\d{4}-\\d{2}-\\d{2})")
+                .matcher(value);
+        if (isoDate.find()) {
+            return LocalDate.parse(isoDate.group(1), ISO_DATE);
+        }
         try {
             if (value.contains("年")) {
                 return LocalDate.parse(value, CN_DATE);

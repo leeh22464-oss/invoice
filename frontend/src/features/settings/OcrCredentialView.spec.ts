@@ -98,7 +98,10 @@ describe('OcrCredentialView', () => {
 
     expect(secretValue(wrapper)).toBe('')
     expect(wrapper.text()).not.toContain(rawSecret)
-    expect(wrapper.get('input[name="apiKey"]').element).toHaveProperty('value', '')
+    expect(wrapper.get('input[name="apiKey"]').element).toHaveProperty(
+      'value',
+      'https://aistudio.baidu.com/llm/lmapi/v3',
+    )
   })
 
   it('shows only the mask and validation time for a configured credential', async () => {
@@ -115,6 +118,8 @@ describe('OcrCredentialView', () => {
     expect(wrapper.text()).not.toContain(rawApiKey)
     expect(wrapper.text()).not.toContain(updatedAt)
     expect(secretValue(wrapper)).toBe('')
-    expect((wrapper.get('input[name="apiKey"]').element as HTMLInputElement).value).toBe('')
+    expect((wrapper.get('input[name="apiKey"]').element as HTMLInputElement).value).toBe(
+      'https://aistudio.baidu.com/llm/lmapi/v3',
+    )
   })
 })

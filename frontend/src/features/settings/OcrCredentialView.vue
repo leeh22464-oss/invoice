@@ -11,8 +11,10 @@ type CredentialStatus = {
   updatedAt: string | null
 }
 
+const serviceBase = 'https://aistudio.baidu.com/llm/lmapi/v3'
+
 const status = ref<CredentialStatus | null>(null)
-const apiKey = ref('')
+const apiKey = ref(serviceBase)
 const secretKey = ref('')
 const liveMessage = ref('')
 const fieldErrors = ref<Record<string, string>>({})
@@ -38,7 +40,7 @@ function applyStatus(data: CredentialStatus) {
     lastValidatedAt: data.lastValidatedAt ?? null,
     updatedAt: data.updatedAt ?? null,
   }
-  apiKey.value = ''
+  apiKey.value = serviceBase
   secretKey.value = ''
 }
 
@@ -112,13 +114,19 @@ async function removeCredential() {
 </script>
 
 <template>
-  <section class="card settings-card">
-    <h2>OCR 凭证</h2>
-    <p class="lede">填写 PaddleOCR 任务页里的接口地址和访问令牌。保存后只显示地址掩码和验证结果，访问令牌不会回填。</p>
+  <section>
+    <header class="desk-head">
+      <div>
+        <p class="eyebrow">连接</p>
+        <h2>OCR 凭证</h2>
+      </div>
+    </header>
+    <div class="card settings-card">
+    <p class="lede">识别使用星河大模型。服务域名填写 https://aistudio.baidu.com/llm/lmapi/v3，访问令牌从个人中心的访问令牌页复制。不要把令牌页网址填到服务域名。保存后只显示域名掩码和验证结果，访问令牌不会回填。</p>
 
     <dl v-if="status?.configured" class="status-list" aria-label="当前凭证">
       <div>
-        <dt>接口地址</dt>
+        <dt>服务域名</dt>
         <dd>{{ status.apiKeyMask }}</dd>
       </div>
       <div>
@@ -135,8 +143,9 @@ async function removeCredential() {
     <p v-else class="muted">尚未配置 OCR 凭证。</p>
 
     <form @submit.prevent="save">
+      <div class="settings-fields">
       <div class="field">
-        <label for="api-key">接口地址</label>
+        <label for="api-key">服务域名</label>
         <input
           id="api-key"
           name="apiKey"
@@ -161,6 +170,7 @@ async function removeCredential() {
         />
         <p v-if="fieldErrors.secretKey" id="secret-key-error" class="field-error">{{ fieldErrors.secretKey }}</p>
       </div>
+      </div>
       <p class="live-error" aria-live="assertive">{{ liveMessage }}</p>
       <div class="actions">
         <button class="button-primary" type="submit" :disabled="busy">保存</button>
@@ -170,5 +180,6 @@ async function removeCredential() {
         <button class="button-quiet" type="button" :disabled="busy" @click="removeCredential">删除凭证</button>
       </div>
     </form>
+    </div>
   </section>
 </template>

@@ -131,11 +131,12 @@ describe('ReviewWorkbench', () => {
     await wrapper.get('[role="listbox"]').trigger('keydown', { key: 'ArrowDown' })
     await flushPromises()
 
-    expect(wrapper.get('[aria-selected="true"]').text()).toContain('00000002')
+    expect(wrapper.get('[aria-selected="true"]').text()).toContain('火车票')
     expect((wrapper.get('input[name="amount"]').element as HTMLInputElement).value).toBe('50.00')
     expect((wrapper.get('input[name="invoiceNumber"]').element as HTMLInputElement).value).toBe('00000002')
-    expect(wrapper.get('[data-preview] a').attributes('href')).toBe('/api/invoices/inv-2/file')
-    expect(wrapper.get('[data-preview] a').text()).toContain('ride.pdf')
+    const frame = wrapper.get('[data-preview] iframe')
+    expect(frame.attributes('src')).toMatch(/^blob:/)
+    expect(frame.attributes('title')).toContain('ride.pdf')
     expect(wrapper.find('[data-preview] img').exists()).toBe(false)
     const secondFile = calls.find((call) => call.url === '/api/invoices/inv-2/file')
     expect(secondFile?.withCredentials).toBe(true)
@@ -200,7 +201,7 @@ describe('ReviewWorkbench', () => {
     await flushPromises()
 
     expect(wrapper.get('[data-action="approve"]').attributes('disabled')).toBeDefined()
-    expect(wrapper.findAll('.button-primary')).toHaveLength(1)
+    expect(wrapper.findAll('.button-primary')).toHaveLength(0)
   })
 
   it('refreshes issues and duplicate evidence after saving a correction', async () => {

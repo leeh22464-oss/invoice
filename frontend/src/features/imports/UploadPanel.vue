@@ -17,6 +17,15 @@ const EXTENSION_TYPES: Record<string, string> = {
   pdf: 'application/pdf',
 }
 
+const TYPE_ALIASES: Record<string, string> = {
+  'image/jpg': 'image/jpeg',
+  'image/pjpeg': 'image/jpeg',
+  'image/x-png': 'image/png',
+  'application/x-pdf': 'application/pdf',
+  'application/acrobat': 'application/pdf',
+  'application/vnd.pdf': 'application/pdf',
+}
+
 type Progress = {
   totalFiles: number
   status: string
@@ -28,6 +37,7 @@ const errors = ref<string[]>([])
 const liveMessage = ref('')
 const busy = ref(false)
 const progress = ref<Progress | null>(null)
+const dragDepth = ref(0)
 
 let eventSource: EventSource | null = null
 let pollTimer: number | undefined
@@ -43,15 +53,28 @@ function extensionOf(name: string): string {
   return dot < 0 ? '' : name.slice(dot + 1).toLowerCase()
 }
 
-function accepted(file: File): boolean {
+function canonicalType(file: File): string {
   const expected = EXTENSION_TYPES[extensionOf(file.name)]
   if (!expected) {
-    return false
+    return ''
   }
-  if (!file.type) {
-    return true
+  const declared = file.type.toLowerCase()
+  if (!declared || declared === 'application/octet-stream' || declared === expected) {
+    return expected
   }
-  return file.type.toLowerCase() === expected
+  return TYPE_ALIASES[declared] === expected ? expected : ''
+}
+
+function accepted(file: File): boolean {
+  return canonicalType(file) !== ''
+}
+
+function uploadFile(file: File): File {
+  const type = canonicalType(file)
+  if (!type || file.type.toLowerCase() === type) {
+    return file
+  }
+  return new File([file], file.name, { type, lastModified: file.lastModified })
 }
 
 function validate(list: File[]): string[] {
@@ -79,8 +102,79 @@ function onInput(event: Event) {
   applyFiles(Array.from(input.files ?? []))
 }
 
+function allowDrop(event: DragEvent) {
+  event.preventDefault()
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'copy'
+  }
+}
+
+function onDragEnter(event: DragEvent) {
+  allowDrop(event)
+  dragDepth.value += 1
+}
+
+function onDragLeave() {
+  dragDepth.value = Math.max(0, dragDepth.value - 1)
+}
+
 function onDrop(event: DragEvent) {
-  applyFiles(Array.from(event.dataTransfer?.files ?? []))
+  event.preventDefault()
+  dragDepth.value = 0
+  void collectDroppedFiles(event).then(applyFiles)
+}
+
+function collectDroppedFiles(event: DragEvent): Promise<File[]> {
+  const items = event.dataTransfer?.items
+  if (!items || items.length === 0) {
+    return Promise.resolve(Array.from(event.dataTransfer?.files ?? []))
+  }
+  const collected: File[] = []
+  const tasks: Promise<void>[] = []
+  for (const item of Array.from(items)) {
+    const entry = item.webkitGetAsEntry?.()
+    if (entry) {
+      tasks.push(readEntry(entry, collected))
+      continue
+    }
+    const file = item.getAsFile()
+    if (file) {
+      collected.push(file)
+    }
+  }
+  if (tasks.length === 0 && collected.length === 0) {
+    return Promise.resolve(Array.from(event.dataTransfer?.files ?? []))
+  }
+  return Promise.all(tasks).then(() => collected)
+}
+
+function readEntry(entry: FileSystemEntry, into: File[]): Promise<void> {
+  if (entry.isFile) {
+    return new Promise((resolve) => {
+      (entry as FileSystemFileEntry).file((file) => {
+        into.push(file)
+        resolve()
+      }, () => resolve())
+    })
+  }
+  if (!entry.isDirectory) {
+    return Promise.resolve()
+  }
+  const reader = (entry as FileSystemDirectoryEntry).createReader()
+  return new Promise((resolve) => {
+    const children: FileSystemEntry[] = []
+    const readBatch = () => {
+      reader.readEntries((entries) => {
+        if (entries.length === 0) {
+          void Promise.all(children.map((child) => readEntry(child, into))).then(() => resolve())
+          return
+        }
+        children.push(...entries)
+        readBatch()
+      }, () => resolve())
+    }
+    readBatch()
+  })
 }
 
 function stopListening() {
@@ -172,7 +266,7 @@ async function upload() {
   try {
     const body = new FormData()
     for (const file of files.value) {
-      body.append('files', file)
+      body.append('files', uploadFile(file))
     }
     const { data } = await api.post<{ id: string; totalFiles: number; status: string }>('/api/import-batches', body)
     progress.value = {
@@ -192,23 +286,39 @@ onUnmounted(stopListening)
 </script>
 
 <template>
-  <section class="card upload-card">
-    <h2>导入票据</h2>
-    <p class="lede">一次最多 100 个 JPG、JPEG、PNG 或 PDF，每个不超过 20 MiB。</p>
-    <form @submit.prevent="upload">
-      <div class="field">
-        <label for="import-files">票据文件</label>
-        <input
-          id="import-files"
-          name="files"
-          type="file"
-          multiple
-          accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf"
-          @change="onInput"
-        />
+  <section>
+    <header class="desk-head">
+      <div>
+        <p class="eyebrow">添加发票</p>
+        <h2>导入票据</h2>
       </div>
-      <div class="dropzone" data-dropzone @dragover.prevent @drop.prevent="onDrop">
-        将 JPG、JPEG、PNG 或 PDF 拖到这里
+    </header>
+    <div class="card upload-card">
+    <p class="lede">可以一次选中多个文件，或把一组文件、整个文件夹拖到这里。一次最多 100 个 JPG、JPEG、PNG 或 PDF，每个不超过 20 MiB。</p>
+    <form @submit.prevent="upload">
+      <div
+        class="dropzone"
+        :class="{ 'is-dragover': dragDepth > 0 }"
+        data-dropzone
+        @dragenter.capture="onDragEnter"
+        @dragover.capture="allowDrop"
+        @dragleave="onDragLeave"
+        @drop.capture="onDrop"
+      >
+        <p>将 JPG、JPEG、PNG 或 PDF 拖到这里</p>
+        <div class="file-picker">
+          <input
+            id="import-files"
+            class="file-picker-input"
+            name="files"
+            type="file"
+            multiple
+            accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf"
+            @change="onInput"
+          />
+          <label class="button-quiet file-picker-button" for="import-files">选择文件</label>
+          <span class="muted">{{ files.length ? `已选择 ${files.length} 个文件` : '尚未选择文件' }}</span>
+        </div>
       </div>
       <ul v-if="files.length" class="file-list">
         <li v-for="file in files" :key="file.name + file.size">{{ file.name }}</li>
@@ -225,5 +335,6 @@ onUnmounted(stopListening)
       :status="progress.status"
       :status-counts="progress.statusCounts"
     />
+    </div>
   </section>
 </template>

@@ -23,7 +23,7 @@ public class PaddleClientConfig {
     WebClient.Builder paddleWebClientBuilder() {
         HttpClient client = HttpClient.create()
                 .option(io.netty.channel.ChannelOption.CONNECT_TIMEOUT_MILLIS, 10_000)
-                .responseTimeout(Duration.ofSeconds(10));
+                .responseTimeout(Duration.ofSeconds(120));
         return WebClient.builder()
                 .clientConnector(new ReactorClientHttpConnector(client));
     }

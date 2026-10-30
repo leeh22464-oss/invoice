@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { fieldLabel } from '../../lib/labels'
 import type { DuplicateEvidence } from './types'
 
 defineProps<{
@@ -15,7 +16,7 @@ defineProps<{
       </p>
       <p>已匹配票据 {{ evidence.matchedInvoiceId }}</p>
       <p>匹配分 {{ evidence.score }}</p>
-      <p>命中字段 {{ evidence.matchedFields.join('、') }}</p>
+      <p>命中字段 {{ evidence.matchedFields.map((name) => fieldLabel(name)).join('、') }}</p>
     </template>
     <p v-else class="muted">无重复依据</p>
   </section>

@@ -25,6 +25,7 @@ import java.io.InputStream;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -116,7 +117,6 @@ public class OcrProcessingService {
         invoiceFileRepository.save(file);
 
         try {
-            PaddleCredential credential = credentialService.decryptForUser(userId);
             byte[] bytes;
             try (InputStream input = storage.open(userId, file.getStorageKey())) {
                 bytes = input.readAllBytes();
@@ -124,14 +124,15 @@ public class OcrProcessingService {
             if (contentHolder != null) {
                 contentHolder.set(bytes);
             }
-            OcrDocument document = ocrProvider.recognize(credential, file.toStoredFile());
+            OcrDocument document = recognizeDocument(userId, file, bytes);
             NormalizedInvoice normalized = normalizer.normalize(document);
+            String rawJson = storedRaw(document);
             String serializedFields = fieldsJson(normalized);
 
             ocrResultRepository.findByInvoiceFileIdAndUserId(file.getId(), userId)
                     .ifPresentOrElse(
                             existing -> {
-                                existing.replace(document.providerRequestId(), document.rawJson());
+                                existing.replace(document.providerRequestId(), rawJson);
                                 ocrResultRepository.save(existing);
                             },
                             () -> ocrResultRepository.save(new OcrResult(
@@ -139,7 +140,7 @@ public class OcrProcessingService {
                                     userId,
                                     file.getId(),
                                     document.providerRequestId(),
-                                    document.rawJson(),
+                                    rawJson,
                                     now)));
             UUID normalizedId = normalizedInvoiceRepository
                     .findByInvoiceFileIdAndUserId(file.getId(), userId)
@@ -197,6 +198,56 @@ public class OcrProcessingService {
         } catch (IOException exception) {
             throw new PaddleServiceUnavailableException();
         }
+    }
+
+    private OcrDocument recognizeDocument(UUID userId, InvoiceFile file, byte[] bytes) {
+        if ("application/pdf".equals(file.getMediaType())) {
+            OcrDocument pdf = documentFromPdf(bytes);
+            if (pdf != null && hasUsefulFields(pdf)) {
+                return pdf;
+            }
+        }
+        PaddleCredential credential = credentialService.decryptForUser(userId);
+        return ocrProvider.recognize(credential, file.toStoredFile());
+    }
+
+    private static OcrDocument documentFromPdf(byte[] bytes) {
+        List<String> lines = PdfTextExtractor.lines(bytes);
+        boolean invoiceText = false;
+        for (String line : lines) {
+            if (line.contains("发票") || line.contains("客票") || line.contains("行程")) {
+                invoiceText = true;
+                break;
+            }
+        }
+        if (!invoiceText) {
+            return null;
+        }
+        try {
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("source", "pdf-text");
+            payload.put("lines", lines);
+            return PaddleOcrV5Parser.fromLines(lines, MAPPER.writeValueAsString(payload));
+        } catch (JsonProcessingException exception) {
+            return PaddleOcrV5Parser.fromLines(lines, "{\"source\":\"pdf-text\"}");
+        }
+    }
+
+    private static boolean hasUsefulFields(OcrDocument document) {
+        for (OcrField field : document.fields()) {
+            if ("type".equals(field.name()) || "InvoiceType".equals(field.name())) {
+                continue;
+            }
+            if (field.rawValue() != null && !field.rawValue().isBlank()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String storedRaw(OcrDocument document) {
+        String raw = document.rawJson();
+        return raw == null || raw.isBlank() ? "{}" : raw;
     }
 
     private void persistFailedStatus(UUID userId, UUID invoiceFileId) {

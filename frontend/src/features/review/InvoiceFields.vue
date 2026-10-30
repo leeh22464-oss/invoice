@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 
-import { fieldLabel } from '../../lib/labels'
+import { fieldLabel, fieldValue, statusLabel } from '../../lib/labels'
 import { approvalBlocked, type InvoiceRecord } from './types'
 
 const props = defineProps<{
   invoice: InvoiceRecord
+  retrying?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -44,19 +45,22 @@ function approve() {
 
 <template>
   <section class="fields-panel" aria-label="票据字段">
-    <h3>字段</h3>
+    <div class="result-head">
+      <h3>识别结果</h3>
+      <span class="result-status"><i class="status-dot" :data-status="invoice.status">●</i> {{ statusLabel(invoice.status) }}</span>
+    </div>
     <div v-for="(value, name) in draft" :key="name" class="field" :data-field="name">
       <label :for="`field-${name}`">{{ fieldLabel(String(name)) }}</label>
       <input
         :id="`field-${name}`"
         :name="String(name)"
-        :value="value"
+        :value="fieldValue(String(name), value)"
         @input="updateField(String(name), $event)"
       />
       <p v-if="isLow(String(name))" class="confidence-flag">低置信度</p>
     </div>
     <div class="actions">
-      <button class="button-primary" type="button" data-action="save" @click="save">保存修正</button>
+      <button class="button-quiet" type="button" data-action="save" @click="save">保存修正</button>
       <button
         class="button-quiet"
         type="button"
@@ -66,7 +70,15 @@ function approve() {
       >
         通过
       </button>
-      <button class="button-quiet" type="button" data-action="retry" @click="emit('retry')">重试</button>
+      <button
+        class="button-quiet"
+        type="button"
+        data-action="retry"
+        :disabled="retrying"
+        @click="emit('retry')"
+      >
+        {{ retrying ? '正在重新识别' : '重试' }}
+      </button>
     </div>
   </section>
 </template>

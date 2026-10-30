@@ -15,7 +15,7 @@ public class UnknownTypeRule implements VerificationRule {
             return List.of(new VerificationIssue(
                     "UNKNOWN_TYPE",
                     "invoiceType",
-                    "invoice type is unknown and requires review",
+                    "未能识别发票类型，需要人工复核",
                     VerificationSeverity.REVIEW));
         }
         return List.of();

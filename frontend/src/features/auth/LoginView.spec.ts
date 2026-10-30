@@ -27,6 +27,7 @@ async function mountLogin() {
     routes: [
       { path: '/login', component: LoginView },
       { path: '/register', component: { template: '<div>注册</div>' } },
+      { path: '/review', component: { template: '<div>复核</div>' } },
       { path: '/settings/ocr', component: { template: '<div>凭证设置</div>' } },
     ],
   })

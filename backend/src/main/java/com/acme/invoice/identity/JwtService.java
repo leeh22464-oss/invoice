@@ -25,13 +25,17 @@ public class JwtService {
 
     public JwtService(
             @Value("${app.jwt.secret:}") String configuredSecret,
-            @Value("${app.jwt.ttl:PT1H}") Duration ttl) {
+            @Value("${app.jwt.ttl:P7D}") Duration ttl) {
         byte[] secret = secretBytes(configuredSecret);
         if (secret.length < 32) {
             throw new IllegalStateException("APP_JWT_SECRET must contain at least 32 bytes");
         }
         this.key = Keys.hmacShaKeyFor(secret);
         this.ttl = ttl;
+    }
+
+    public Duration timeToLive() {
+        return ttl;
     }
 
     public String issue(UUID userId) {

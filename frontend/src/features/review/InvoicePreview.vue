@@ -7,7 +7,7 @@ const props = defineProps<{
   invoiceId: string
 }>()
 
-const kind = ref<'image' | 'file' | 'error' | ''>('')
+const kind = ref<'image' | 'pdf' | 'file' | 'error' | ''>('')
 const objectUrl = ref('')
 const filename = ref('票据文件')
 const errorMessage = ref('')
@@ -80,6 +80,34 @@ async function readPreviewError(error: unknown): Promise<string> {
   return readApiError(error).message
 }
 
+async function mediaKind(blob: Blob, contentType: string, name: string): Promise<'image' | 'pdf' | 'file'> {
+  const type = contentType.split(';')[0].trim().toLowerCase()
+  if (type === 'image/jpeg' || type === 'image/jpg' || type === 'image/png') {
+    return 'image'
+  }
+  if (type === 'application/pdf') {
+    return 'pdf'
+  }
+  const lower = name.toLowerCase()
+  if (lower.endsWith('.pdf')) {
+    return 'pdf'
+  }
+  if (lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg')) {
+    return 'image'
+  }
+  const bytes = new Uint8Array(await blob.slice(0, 5).arrayBuffer())
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) {
+    return 'image'
+  }
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+    return 'image'
+  }
+  if (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) {
+    return 'pdf'
+  }
+  return 'file'
+}
+
 function revoke() {
   if (objectToRevoke) {
     URL.revokeObjectURL(objectToRevoke)
@@ -101,11 +129,21 @@ async function load(id: string) {
     const parsedName = filenameFrom(headerValue(response.headers, 'content-disposition'))
     filename.value = parsedName || '票据文件'
     revoke()
-    const image = contentType === 'image/jpeg' || contentType === 'image/jpg' || contentType === 'image/png'
-    if (image && response.data instanceof Blob) {
-      objectToRevoke = URL.createObjectURL(response.data)
+    if (!(response.data instanceof Blob)) {
+      kind.value = 'file'
+      return
+    }
+    const media = await mediaKind(response.data, contentType, filename.value)
+    if (serial !== requestSerial) {
+      return
+    }
+    if (media === 'image' || media === 'pdf') {
+      const typed = media === 'pdf'
+        ? new Blob([response.data], { type: 'application/pdf' })
+        : response.data
+      objectToRevoke = URL.createObjectURL(typed)
       objectUrl.value = objectToRevoke
-      kind.value = 'image'
+      kind.value = media
       return
     }
     kind.value = 'file'
@@ -138,12 +176,20 @@ onUnmounted(() => {
 
 <template>
   <section data-preview class="preview-panel" aria-label="票据预览">
-    <h3>原票</h3>
-    <img v-if="kind === 'image'" :src="objectUrl" alt="票据预览" />
-    <p v-else-if="kind === 'file'">
-      <a class="button-quiet" :href="`/api/invoices/${invoiceId}/file`">{{ filename }}</a>
-    </p>
-    <p v-else-if="kind === 'error'" class="preview-error" aria-live="assertive">{{ errorMessage }}</p>
-    <p v-else class="muted">正在读取原票</p>
+    <div class="preview-sheet" :class="{ 'is-document': kind === 'image' || kind === 'pdf' }">
+      <h3 v-if="kind !== 'image' && kind !== 'pdf'" class="result-kicker">原票</h3>
+      <img v-if="kind === 'image'" :src="objectUrl" alt="票据预览" />
+      <iframe
+        v-else-if="kind === 'pdf'"
+        class="preview-frame"
+        :src="`${objectUrl}#toolbar=0&navpanes=0&view=FitH`"
+        :title="filename"
+      ></iframe>
+      <p v-else-if="kind === 'file'">
+        <a class="button-quiet" :href="`/api/invoices/${invoiceId}/file`">{{ filename }}</a>
+      </p>
+      <p v-else-if="kind === 'error'" class="preview-error" aria-live="assertive">{{ errorMessage }}</p>
+      <p v-else class="muted">正在读取原票</p>
+    </div>
   </section>
 </template>

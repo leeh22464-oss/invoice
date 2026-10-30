@@ -6,7 +6,9 @@
   --border: rgba(0, 0, 0, 0.08);
   --primary: #1d1d1f;
   --focus: #0071e3;
+  --preview: #e8e8ed;
   --radius-card: 16px;
   --radius-control: 10px;
-  --shadow-card: 0 8px 28px rgba(0, 0, 0, 0.06);
+  --radius-pill: 999px;
+  --shadow-card: 0 5px 18px rgba(0, 0, 0, 0.035);
 }

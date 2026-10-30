@@ -80,6 +80,49 @@ class InvoiceNormalizerTest {
     }
 
     @Test
+    void electronicTitleAfterTheNumberLineIsNotUnknown() {
+        OcrDocument document = parser.parseResponse("""
+                {"logId":"1","result":{"ocrResults":[{"prunedResult":{
+                  "rec_texts":["发票号码","26939133284002962213","电子发票（普通发票）","价税合计（小写）¥93.81"],
+                  "rec_scores":[0.9,0.9,0.9,0.9]
+                }}]}}
+                """);
+
+        NormalizedInvoice invoice = normalizer.normalize(document);
+
+        assertThat(invoice.type()).isEqualTo(InvoiceType.ELECTRONIC);
+        assertThat(invoice.invoiceNumber()).isEqualTo("26939133284002962213");
+        assertThat(invoice.total()).isEqualByComparingTo("93.81");
+    }
+
+    @Test
+    void railwayElectronicTicketUsesTheTicketNumberAndFare() {
+        OcrDocument document = parser.parseResponse("""
+                {"logId":"2","result":{"ocrResults":[{"prunedResult":{
+                  "rec_texts":[
+                    "发票号码:26939133284002962213",
+                    "电子发票（铁路电子客票）",
+                    "开票日期:2026年09月21日",
+                    "票价:",
+                    "￥77.00",
+                    "电子客票号:3328459086092198074182026 始发改签"
+                  ],
+                  "rec_scores":[0.9,0.9,0.9,0.9,0.9,0.9]
+                }}]}}
+                """);
+
+        NormalizedInvoice invoice = normalizer.normalize(document);
+
+        assertThat(invoice.type()).isEqualTo(InvoiceType.RAILWAY);
+        assertThat(invoice.invoiceNumber()).isEqualTo("26939133284002962213");
+        assertThat(invoice.invoiceDate()).isEqualTo(LocalDate.parse("2026-09-21"));
+        assertThat(invoice.amount()).isEqualByComparingTo("77.00");
+        assertThat(invoice.total()).isEqualByComparingTo("77.00");
+        assertThat(invoice.fields().get("ticket_num").sourceText())
+                .isEqualTo("3328459086092198074182026");
+    }
+
+    @Test
     void unrecognizedProviderTypeBecomesUnknownInsteadOfFailing() {
         OcrDocument document = new OcrDocument(
                 "unknown-1",

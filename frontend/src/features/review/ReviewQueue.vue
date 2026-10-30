@@ -34,7 +34,7 @@ function onKeydown(event: KeyboardEvent) {
     aria-label="待复核队列"
     @keydown="onKeydown"
   >
-    <h3>待复核</h3>
+    <p class="queue-label">处理队列 · {{ invoices.length }}</p>
     <p v-if="invoices.length === 0" class="muted">暂无票据</p>
     <button
       v-for="(invoice, index) in invoices"
@@ -46,8 +46,9 @@ function onKeydown(event: KeyboardEvent) {
       :aria-selected="index === selectedIndex"
       @click="emit('select', index)"
     >
-      <span>{{ invoice.invoiceNumber || '未识别号码' }}</span>
-      <span class="muted">{{ invoiceTypeLabel(invoice.invoiceType) }} · {{ statusLabel(invoice.status) }}</span>
+      <span class="queue-title">{{ invoiceTypeLabel(invoice.invoiceType) }}</span>
+      <span class="queue-meta">{{ invoice.total || invoice.amount || invoice.invoiceNumber || '未识别号码' }}</span>
+      <span class="queue-status"><i class="status-dot" :data-status="invoice.status">●</i> {{ statusLabel(invoice.status) }}</span>
     </button>
   </div>
 </template>

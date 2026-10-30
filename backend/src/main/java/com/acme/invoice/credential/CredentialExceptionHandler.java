@@ -1,6 +1,7 @@
 package com.acme.invoice.credential;
 
 import com.acme.invoice.identity.ApiError;
+import com.acme.invoice.ocr.OcrEndpointException;
 import com.acme.invoice.ocr.PaddleServiceUnavailableException;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatus;
@@ -16,6 +17,12 @@ public class CredentialExceptionHandler {
     ResponseEntity<ApiError> handleCredential(CredentialException exception) {
         return ResponseEntity.status(exception.getStatus())
                 .body(new ApiError(exception.getCode(), exception.getMessage()));
+    }
+
+    @ExceptionHandler(OcrEndpointException.class)
+    ResponseEntity<ApiError> handleOcrEndpoint(OcrEndpointException exception) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+                .body(new ApiError("OCR_ENDPOINT_INVALID", exception.getMessage()));
     }
 
     @ExceptionHandler(PaddleServiceUnavailableException.class)

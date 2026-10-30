@@ -79,6 +79,7 @@ public class AuthController {
                 .secure(secureCookie)
                 .sameSite("Lax")
                 .path("/")
+                .maxAge(jwtService.timeToLive())
                 .build();
         ResponseCookie xsrfToken = ResponseCookie
                 .from("XSRF-TOKEN", csrfToken.getToken())
@@ -86,6 +87,7 @@ public class AuthController {
                 .secure(secureCookie)
                 .sameSite("Lax")
                 .path("/")
+                .maxAge(jwtService.timeToLive())
                 .build();
 
         HttpHeaders headers = new HttpHeaders();

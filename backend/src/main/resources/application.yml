@@ -30,14 +30,14 @@ app:
     root: ${APP_STORAGE_ROOT:}
   jwt:
     secret: ${APP_JWT_SECRET:}
-    ttl: ${APP_JWT_TTL:PT1H}
+    ttl: ${APP_JWT_TTL:P7D}
     secure-cookie: ${APP_JWT_SECURE_COOKIE:${APP_COOKIE_SECURE:true}}
   credential:
     master-key: ${APP_CREDENTIAL_MASTER_KEY:}
   paddle:
     token-url: ${APP_PADDLE_TOKEN_URL:https://aip.baidubce.com/oauth/2.0/token}
     recognize-url: ${APP_PADDLE_RECOGNIZE_URL:https://aip.baidubce.com/rest/2.0/ocr/v1/multiple_invoice}
-    timeout-ms: 10000
+    timeout-ms: 120000
   erp:
     push-url: ${APP_ERP_PUSH_URL:}
     push-token: ${APP_ERP_PUSH_TOKEN:}

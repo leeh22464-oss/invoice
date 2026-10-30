@@ -17,6 +17,8 @@ import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 
+import java.time.Duration;
+
 @Configuration
 @Profile("!smoke")
 public class SecurityConfig {
@@ -30,13 +32,15 @@ public class SecurityConfig {
     SecurityFilterChain securityFilterChain(
             HttpSecurity http,
             JwtAuthenticationFilter jwtAuthenticationFilter,
-            @Value("${app.jwt.secure-cookie:true}") boolean secureCookie) throws Exception {
+            @Value("${app.jwt.secure-cookie:true}") boolean secureCookie,
+            @Value("${app.jwt.ttl:P7D}") Duration ttl) throws Exception {
         CookieCsrfTokenRepository csrfRepository = CookieCsrfTokenRepository.withHttpOnlyFalse();
         csrfRepository.setCookieCustomizer(cookie -> cookie
                 .httpOnly(false)
                 .path("/")
                 .sameSite("Lax")
-                .secure(secureCookie));
+                .secure(secureCookie)
+                .maxAge(ttl));
         CsrfTokenRepository readableCsrfRepository = retainReadableCsrfCookie(csrfRepository);
 
         CsrfTokenRequestAttributeHandler csrfHandler = new CsrfTokenRequestAttributeHandler();

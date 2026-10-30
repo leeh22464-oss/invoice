@@ -41,7 +41,7 @@ public class OcrCredentialService {
         CredentialValidation validation =
                 tokenClient.validate(credential.apiKey(), credential.secretKey());
         if (!validation.valid()) {
-            throw new InvalidCredentialException();
+            throw new InvalidCredentialException(validation.message());
         }
 
         EncryptedSecret encryptedApiKey = cipher.encrypt(credential.apiKey());

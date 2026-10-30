@@ -43,7 +43,9 @@ class BaiduPaddleOcrProviderTest {
         server.start();
         WireMock.configureFor("localhost", server.port());
         sleepCalls.set(0);
-        credential = new PaddleCredential("http://localhost:" + server.port() + "/ocr", "secret-key-value");
+        credential = new PaddleCredential(
+                "http://localhost:" + server.port() + "/llm/lmapi/v3",
+                "secret-key-value");
         provider = provider(Duration.ofSeconds(2));
     }
 
@@ -54,20 +56,14 @@ class BaiduPaddleOcrProviderTest {
 
     @Test
     void recognizeMapsPaddleOcrV5ResponseWithoutLeakingSecrets() {
-        stubFor(post(urlPathEqualTo("/ocr"))
-                .withHeader("Authorization", equalTo("token secret-key-value"))
-                .withRequestBody(containing("\"fileType\":1"))
+        stubFor(post(urlPathEqualTo("/llm/lmapi/v3/chat/completions"))
+                .withHeader("Authorization", equalTo("Bearer secret-key-value"))
+                .withRequestBody(containing("\"model\":\"ernie-4.5-turbo-vl\""))
+                .withRequestBody(containing("data:image/png;base64,"))
                 .willReturn(aResponse()
                         .withStatus(200)
                         .withHeader("Content-Type", "application/json")
-                        .withBody("""
-                                {"logId":"4242","errorCode":0,"errorMsg":"Success","result":{"ocrResults":[{
-                                  "prunedResult":{
-                                    "rec_texts":["增值税专用发票","发票代码","033001900111","发票号码","00123456"],
-                                    "rec_scores":[0.99,0.99,0.99,0.99,0.99]
-                                  }
-                                }]}}
-                                """)));
+                        .withBody(chat("4242", "增值税专用发票\n发票代码：033001900111\n发票号码：00123456"))));
 
         OcrDocument document = provider.recognize(credential, FILE);
 
@@ -83,7 +79,24 @@ class BaiduPaddleOcrProviderTest {
                     assertThat(field.rawValue()).isEqualTo("00123456");
                 });
         assertThat(document.rawJson()).doesNotContain("secret-key-value");
-        verify(1, postRequestedFor(urlPathEqualTo("/ocr")));
+        verify(1, postRequestedFor(urlPathEqualTo("/llm/lmapi/v3/chat/completions")));
+    }
+
+    @Test
+    void rejectsATokenPageOrEmptyBodyInsteadOfSavingBlankRecognition() {
+        stubFor(post(urlPathEqualTo("/llm/lmapi/v3/chat/completions"))
+                .willReturn(aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "text/html")
+                        .withBody("<html><title>accessToken</title></html>")));
+
+        assertThatThrownBy(() -> provider.recognize(credential, FILE))
+                .isInstanceOf(OcrEndpointException.class)
+                .hasMessageContaining("llm/lmapi/v3");
+        verify(1, postRequestedFor(urlPathEqualTo("/llm/lmapi/v3/chat/completions")));
+
+        assertThatThrownBy(() -> provider.parseResponse("{}"))
+                .isInstanceOf(OcrEndpointException.class);
     }
 
     @Test
@@ -147,23 +160,18 @@ class BaiduPaddleOcrProviderTest {
 
     @Test
     void retriesOnceAfter429ThenSucceeds() {
-        stubFor(post(urlPathEqualTo("/ocr"))
+        stubFor(post(urlPathEqualTo("/llm/lmapi/v3/chat/completions"))
                 .inScenario("rate-limit")
                 .whenScenarioStateIs(Scenario.STARTED)
                 .willReturn(aResponse().withStatus(429).withBody("rate-limited"))
                 .willSetStateTo("ok"));
-        stubFor(post(urlPathEqualTo("/ocr"))
+        stubFor(post(urlPathEqualTo("/llm/lmapi/v3/chat/completions"))
                 .inScenario("rate-limit")
                 .whenScenarioStateIs("ok")
                 .willReturn(aResponse()
                         .withStatus(200)
                         .withHeader("Content-Type", "application/json")
-                        .withBody("""
-                                {"logId":"7","errorCode":0,"result":{"ocrResults":[{
-                                  "prunedResult":{"rec_texts":["定额发票","发票号码","01275486","金额","20.00"],
-                                                  "rec_scores":[0.9,0.9,0.9,0.9,0.9]}
-                                }]}}
-                                """)));
+                        .withBody(chat("7", "定额发票\n发票号码：01275486\n金额：20.00"))));
 
         OcrDocument document = provider.recognize(credential, FILE);
 
@@ -171,26 +179,26 @@ class BaiduPaddleOcrProviderTest {
         assertThat(document.fields())
                 .anyMatch(field -> "invoice_number".equals(field.name())
                         && "01275486".equals(field.rawValue()));
-        verify(2, postRequestedFor(urlPathEqualTo("/ocr")));
+        verify(2, postRequestedFor(urlPathEqualTo("/llm/lmapi/v3/chat/completions")));
         assertThat(sleepCalls.get()).isEqualTo(1);
     }
 
     @Test
     void failsAfterThreeHttp500Attempts() {
-        stubFor(post(urlPathEqualTo("/ocr"))
+        stubFor(post(urlPathEqualTo("/llm/lmapi/v3/chat/completions"))
                 .willReturn(aResponse().withStatus(500).withBody("upstream-500")));
 
         assertThatThrownBy(() -> provider.recognize(credential, FILE))
                 .isInstanceOf(PaddleServiceUnavailableException.class)
                 .hasMessageNotContaining("secret-key-value")
                 .hasMessageNotContaining("upstream-500");
-        verify(3, postRequestedFor(urlPathEqualTo("/ocr")));
+        verify(3, postRequestedFor(urlPathEqualTo("/llm/lmapi/v3/chat/completions")));
         assertThat(sleepCalls.get()).isEqualTo(2);
     }
 
     @Test
     void doesNotRetryUnauthorizedCredentials() {
-        stubFor(post(urlPathEqualTo("/ocr"))
+        stubFor(post(urlPathEqualTo("/llm/lmapi/v3/chat/completions"))
                 .willReturn(aResponse()
                         .withStatus(401)
                         .withBody("{\"errorCode\":401}")));
@@ -198,14 +206,14 @@ class BaiduPaddleOcrProviderTest {
         assertThatThrownBy(() -> provider.recognize(credential, FILE))
                 .isInstanceOf(OcrAuthenticationException.class)
                 .hasMessageNotContaining("secret-key-value");
-        verify(1, postRequestedFor(urlPathEqualTo("/ocr")));
+        verify(1, postRequestedFor(urlPathEqualTo("/llm/lmapi/v3/chat/completions")));
         assertThat(sleepCalls.get()).isZero();
     }
 
     @Test
     void failsOnTimeoutWithoutRetryingBeyondPolicy() {
         provider = provider(Duration.ofMillis(200));
-        stubFor(post(urlPathEqualTo("/ocr"))
+        stubFor(post(urlPathEqualTo("/llm/lmapi/v3/chat/completions"))
                 .willReturn(aResponse()
                         .withStatus(200)
                         .withFixedDelay(500)
@@ -213,7 +221,7 @@ class BaiduPaddleOcrProviderTest {
 
         assertThatThrownBy(() -> provider.recognize(credential, FILE))
                 .isInstanceOf(PaddleServiceUnavailableException.class);
-        verify(3, postRequestedFor(urlPathEqualTo("/ocr")));
+        verify(3, postRequestedFor(urlPathEqualTo("/llm/lmapi/v3/chat/completions")));
     }
 
     private BaiduPaddleOcrProvider provider(Duration timeout) {
@@ -222,5 +230,10 @@ class BaiduPaddleOcrProviderTest {
                 file -> IMAGE_BYTES,
                 timeout,
                 ignored -> sleepCalls.incrementAndGet());
+    }
+
+    private static String chat(String id, String content) {
+        String escaped = content.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n");
+        return "{\"id\":\"" + id + "\",\"choices\":[{\"message\":{\"content\":\"" + escaped + "\"}}]}";
     }
 }

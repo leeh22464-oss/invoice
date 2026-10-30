@@ -20,7 +20,7 @@ async function onSubmit() {
   submitting.value = true
   try {
     await session.login(email.value, password.value)
-    await router.push('/settings/ocr')
+    await router.push('/review')
   } catch (error) {
     const parsed = readApiError(error)
     liveMessage.value = parsed.message

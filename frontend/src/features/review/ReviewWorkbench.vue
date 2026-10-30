@@ -12,6 +12,7 @@ import VerificationIssues from './VerificationIssues.vue'
 const invoices = ref<InvoiceRecord[]>([])
 const selectedIndex = ref(0)
 const liveMessage = ref('')
+const retrying = ref(false)
 const queueOpen = ref(false)
 const narrowQuery = '(max-width: 1099px)'
 const narrowMedia = typeof window.matchMedia === 'function' ? window.matchMedia(narrowQuery) : null
@@ -31,6 +32,11 @@ onUnmounted(() => {
 
 const selected = computed(() => invoices.value[selectedIndex.value])
 const queueInert = computed(() => narrow.value && !queueOpen.value)
+const greeting = computed(() => {
+  const hour = new Date().getHours()
+  const hello = hour < 12 ? '上午好' : hour < 18 ? '下午好' : '晚上好'
+  return `${hello}，${invoices.value.length} 张发票待处理`
+})
 
 function replace(next: InvoiceRecord) {
   const index = invoices.value.findIndex((item) => item.id === next.id)
@@ -84,21 +90,37 @@ async function approve() {
 
 async function retry() {
   const current = selected.value
-  if (!current) {
+  if (!current || retrying.value) {
     return
   }
+  const beforeType = current.invoiceType
+  const beforeNumber = current.invoiceNumber
   liveMessage.value = ''
+  retrying.value = true
   try {
     const { data } = await api.post<InvoiceRecord>(`/api/invoices/${current.id}/retry`)
     replace(data)
+    if (data.invoiceType === beforeType && data.invoiceNumber === beforeNumber && data.invoiceType === 'UNKNOWN') {
+      liveMessage.value = '重新识别完成，仍未读到发票内容'
+    } else {
+      liveMessage.value = '已重新识别'
+    }
   } catch (error) {
     liveMessage.value = readApiError(error).message
+  } finally {
+    retrying.value = false
   }
 }
 </script>
 
 <template>
-  <div class="card workbench-wrap">
+  <div class="workbench-wrap">
+    <header class="desk-head">
+      <div>
+        <p class="eyebrow">核对工作台</p>
+        <h2>{{ greeting }}</h2>
+      </div>
+    </header>
     <button
       class="button-quiet queue-toggle"
       type="button"
@@ -111,22 +133,39 @@ async function retry() {
     <section class="workbench">
       <div
         id="review-queue"
-        class="workbench-queue card"
+        class="workbench-queue"
         :class="{ 'is-open': queueOpen }"
         :inert="queueInert ? true : undefined"
       >
         <ReviewQueue :invoices="invoices" :selected-index="selectedIndex" @select="select" />
       </div>
-      <template v-if="selected">
-        <InvoicePreview class="workbench-preview card" :invoice-id="selected.id" />
-        <aside class="workbench-detail card">
-          <InvoiceFields :invoice="selected" @save="save" @approve="approve" @retry="retry" />
+      <InvoicePreview v-if="selected" class="workbench-preview" :invoice-id="selected.id" />
+      <section v-else class="workbench-preview" aria-label="票据预览">
+        <div class="preview-sheet">
+          <h3 class="result-kicker">原票</h3>
+          <p class="muted">暂无待复核票据</p>
+        </div>
+      </section>
+      <aside class="workbench-detail">
+        <template v-if="selected">
+          <InvoiceFields
+            :invoice="selected"
+            :retrying="retrying"
+            @save="save"
+            @approve="approve"
+            @retry="retry"
+          />
           <VerificationIssues :issues="selected.issues ?? []" />
           <DuplicateEvidence :evidence="selected.duplicateEvidence ?? null" />
-        </aside>
-      </template>
-      <p v-else class="muted workbench-empty">暂无待复核票据</p>
+        </template>
+        <template v-else>
+          <div class="result-head">
+            <h3>识别结果</h3>
+          </div>
+          <p class="muted">从左侧队列选择一张票据。</p>
+        </template>
+        <p class="live-error" aria-live="assertive">{{ liveMessage }}</p>
+      </aside>
     </section>
-    <p class="live-error" aria-live="assertive">{{ liveMessage }}</p>
   </div>
 </template>

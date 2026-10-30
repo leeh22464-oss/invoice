@@ -76,8 +76,14 @@ onMounted(() => {
 </script>
 
 <template>
-  <section class="card ledger-card">
-    <h2>台账</h2>
+  <section>
+    <header class="desk-head">
+      <div>
+        <p class="eyebrow">报表</p>
+        <h2>台账</h2>
+      </div>
+    </header>
+    <div class="card ledger-card">
     <p class="lede">只显示已通过的票据。日期范围包含开始和结束当天。</p>
     <form class="ledger-filters" @change="load">
       <div class="field">
@@ -134,6 +140,7 @@ onMounted(() => {
           </tr>
         </tbody>
       </table>
+    </div>
     </div>
   </section>
 </template>

@@ -48,9 +48,15 @@ final class PaddleOcrV5Parser {
         fields.add(new OcrField("InvoiceType", headline(texts, joined), fallback));
 
         Hit code = labeled(texts, scores, "发票代码");
-        Hit number = firstNonNull(
-                labeled(texts, scores, "发票号码"),
-                labeled(texts, scores, "电子客票号"));
+        Hit invoiceNo = cleanNumber(labeled(texts, scores, "发票号码"));
+        Hit eTicket = cleanNumber(labeled(texts, scores, "电子客票号"));
+        if (code != null && twentyDigits(code.value()) && invoiceNo == null) {
+            invoiceNo = new Hit(code.value(), code.confidence());
+            code = null;
+        } else if (code != null && twentyDigits(code.value())) {
+            code = null;
+        }
+        Hit number = firstNonNull(invoiceNo, eTicket);
         Hit date = firstNonNull(
                 labeled(texts, scores, "开票日期"),
                 labeled(texts, scores, "乘车日期"),
@@ -68,11 +74,12 @@ final class PaddleOcrV5Parser {
 
         switch (providerType) {
             case "train_ticket" -> {
-                add(fields, "ticket_num", number);
-                add(fields, "invoice_num", number);
+                add(fields, "ticket_num", eTicket != null ? eTicket : invoiceNo);
+                add(fields, "invoice_num", invoiceNo != null ? invoiceNo : eTicket);
                 add(fields, "fare", amount);
                 add(fields, "tax", tax);
                 add(fields, "ticket_rates", total == null ? amount : total);
+                add(fields, "InvoiceDate", date);
             }
             case "air_ticket" -> {
                 add(fields, "ticket_number", number);
@@ -128,8 +135,41 @@ final class PaddleOcrV5Parser {
         return "vat_invoice";
     }
 
+    static OcrDocument fromLines(List<String> texts, String rawJson) {
+        return fromLines(texts, rawJson, null);
+    }
+
+    static OcrDocument fromLines(List<String> texts, String rawJson, String requestId) {
+        List<BigDecimal> scores = new ArrayList<>();
+        for (int index = 0; index < texts.size(); index++) {
+            scores.add(BigDecimal.ONE);
+        }
+        return new OcrDocument(requestId, rawJson, toFields(texts, scores));
+    }
+
     private static String headline(List<String> texts, String joined) {
         for (String text : texts) {
+            if (isFieldLabel(text)) {
+                continue;
+            }
+            if (text.contains("电子发票")
+                    || text.contains("增值税")
+                    || text.contains("专用发票")
+                    || text.contains("普通发票")
+                    || text.contains("行程单")
+                    || text.contains("铁路")
+                    || text.contains("火车票")
+                    || text.contains("定额")
+                    || text.contains("海关")
+                    || text.contains("出租车")
+                    || text.contains("出租汽车")) {
+                return text;
+            }
+        }
+        for (String text : texts) {
+            if (isFieldLabel(text)) {
+                continue;
+            }
             if (text.contains("发票") || text.contains("行程") || text.contains("铁路") || text.contains("出租")) {
                 return text;
             }
@@ -137,28 +177,124 @@ final class PaddleOcrV5Parser {
         return joined.isBlank() ? "UNKNOWN" : joined;
     }
 
+    private static boolean isFieldLabel(String text) {
+        String compact = stripParens(compact(text));
+        int split = splitAt(compact);
+        String head = split > 0 ? compact.substring(0, split) : compact;
+        return head.startsWith("发票号码")
+                || head.startsWith("发票代码")
+                || head.startsWith("开票日期")
+                || head.startsWith("电子客票号")
+                || head.startsWith("价税合计")
+                || head.startsWith("合计金额")
+                || head.startsWith("合计税额");
+    }
+
+    private static Hit cleanNumber(Hit hit) {
+        if (hit == null || hit.value() == null) {
+            return hit;
+        }
+        String compact = hit.value().replace(" ", "").replace("\u3000", "");
+        int end = 0;
+        while (end < compact.length() && Character.isDigit(compact.charAt(end))) {
+            end++;
+        }
+        if (end >= 6) {
+            return new Hit(compact.substring(0, end), hit.confidence());
+        }
+        return null;
+    }
+
+    private static boolean twentyDigits(String value) {
+        return value != null && value.length() == 20 && value.chars().allMatch(Character::isDigit);
+    }
+
     private static Hit labeled(List<String> texts, List<BigDecimal> scores, String label) {
+        Hit embedded = null;
         for (int index = 0; index < texts.size(); index++) {
             String compact = compact(texts.get(index));
             int split = splitAt(compact);
             if (split > 0 && labelMatches(compact.substring(0, split), label)) {
-                String value = compact.substring(split + 1).trim();
-                if (!value.isBlank()) {
+                String value = cutAtNextLabel(compact.substring(split + 1).trim());
+                if (!value.isBlank() && !isKnownLabel(value)) {
                     return new Hit(value, scoreAt(scores, index));
                 }
             }
             String rest = remainder(compact, label);
-            if (rest != null && !rest.isBlank()) {
-                return new Hit(rest, scoreAt(scores, index));
+            if (rest != null && !rest.isBlank() && !isKnownLabel(rest)) {
+                return new Hit(cutAtNextLabel(rest), scoreAt(scores, index));
             }
             if ((rest != null || labelMatches(compact, label)) && index + 1 < texts.size()) {
                 String value = compact(texts.get(index + 1));
-                if (!value.isBlank() && remainder(value, label) == null && !labelMatches(value, label)) {
-                    return new Hit(value, scoreAt(scores, index + 1));
+                if (!value.isBlank()
+                        && remainder(value, label) == null
+                        && !labelMatches(value, label)
+                        && !isKnownLabel(value)) {
+                    return new Hit(cutAtNextLabel(value), scoreAt(scores, index + 1));
                 }
             }
+            if (embedded == null) {
+                embedded = embeddedHit(compact, label, scoreAt(scores, index));
+            }
+        }
+        return embedded;
+    }
+
+    private static Hit embeddedHit(String compact, String label, BigDecimal score) {
+        int from = 0;
+        while (from < compact.length()) {
+            int at = compact.indexOf(label, from);
+            if (at < 0) {
+                return null;
+            }
+            if (shadowed(compact, at, label)) {
+                from = at + label.length();
+                continue;
+            }
+            String rest = compact.substring(at + label.length()).replaceFirst("^[：:]+", "");
+            rest = cutAtNextLabel(rest);
+            if (!rest.isBlank() && !isKnownLabel(rest)) {
+                return new Hit(rest, score);
+            }
+            from = at + label.length();
         }
         return null;
+    }
+
+    private static boolean shadowed(String compact, int at, String label) {
+        if ("金额".equals(label) || "税额".equals(label)) {
+            return at >= 2 && compact.startsWith("合计", at - 2);
+        }
+        if ("合计".equals(label)) {
+            return compact.startsWith("合计金额", at) || compact.startsWith("合计税额", at);
+        }
+        return false;
+    }
+
+    private static String cutAtNextLabel(String value) {
+        int cut = value.length();
+        for (String label : KNOWN_LABELS) {
+            int at = value.indexOf(label);
+            if (at > 0) {
+                cut = Math.min(cut, at);
+            }
+        }
+        return value.substring(0, cut).trim();
+    }
+
+    private static final String[] KNOWN_LABELS = {
+            "价税合计", "合计金额", "合计税额", "电子客票号", "发票代码", "发票号码",
+            "开票日期", "乘车日期", "票价", "税额", "金额", "合计"
+    };
+
+    private static boolean isKnownLabel(String compact) {
+        String head = stripParens(compact).replaceFirst("^[：:]+", "");
+        for (String label : KNOWN_LABELS) {
+            if (head.equals(label) || head.startsWith(label)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean labelMatches(String compact, String label) {
@@ -221,6 +357,10 @@ final class PaddleOcrV5Parser {
                 .trim();
         if (cleaned.isBlank()) {
             return null;
+        }
+        BigDecimal chinese = ChineseAmount.parse(cleaned);
+        if (chinese != null) {
+            return new Hit(chinese.toPlainString(), hit.confidence());
         }
         return new Hit(cleaned, hit.confidence());
     }

@@ -11,16 +11,24 @@ export type SessionUser = {
 export const useSessionStore = defineStore('session', () => {
   const user = ref<SessionUser | null>(null)
   const ready = ref(false)
+  let pendingRestore: Promise<void> | null = null
 
-  async function restore() {
-    try {
-      const { data } = await api.get<SessionUser>('/api/auth/me')
-      user.value = data
-    } catch {
-      user.value = null
-    } finally {
-      ready.value = true
+  function restore() {
+    if (pendingRestore) {
+      return pendingRestore
     }
+    pendingRestore = (async () => {
+      try {
+        const { data } = await api.get<SessionUser>('/api/auth/me')
+        user.value = data
+      } catch {
+        user.value = null
+      } finally {
+        ready.value = true
+        pendingRestore = null
+      }
+    })()
+    return pendingRestore
   }
 
   async function login(email: string, password: string) {

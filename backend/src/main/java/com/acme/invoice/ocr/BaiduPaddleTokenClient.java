@@ -6,7 +6,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatusCode;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -20,12 +19,12 @@ import java.time.Duration;
 public class BaiduPaddleTokenClient implements PaddleTokenClient {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final String PROBE_PNG =
-            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
     private static final CredentialValidation VALID =
             new CredentialValidation(true, "Credentials are valid");
     private static final CredentialValidation INVALID =
-            new CredentialValidation(false, "Credentials are invalid");
+            new CredentialValidation(false, "接口地址或访问令牌无效");
+    private static final CredentialValidation NOT_OCR_ENDPOINT =
+            new CredentialValidation(false, OcrEndpointException.MESSAGE);
 
     private final WebClient webClient;
     private final Duration timeout;
@@ -43,14 +42,18 @@ public class BaiduPaddleTokenClient implements PaddleTokenClient {
             return INVALID;
         }
         try {
-            Boolean accepted = webClient.post()
-                    .uri(URI.create(apiUrl.trim()))
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .header("Authorization", "token " + token.trim())
-                    .bodyValue("{\"file\":\"" + PROBE_PNG + "\",\"fileType\":1}")
+            String verdict = webClient.get()
+                    .uri(LlmServiceAddress.models(apiUrl))
+                    .header("Authorization", "Bearer " + token.trim())
                     .exchangeToMono(this::mapProbe)
                     .block(timeout);
-            return Boolean.TRUE.equals(accepted) ? VALID : INVALID;
+            if ("valid".equals(verdict)) {
+                return VALID;
+            }
+            if ("invalid".equals(verdict)) {
+                return INVALID;
+            }
+            return NOT_OCR_ENDPOINT;
         } catch (OcrAuthenticationException exception) {
             return INVALID;
         } catch (PaddleServiceUnavailableException exception) {
@@ -69,10 +72,10 @@ public class BaiduPaddleTokenClient implements PaddleTokenClient {
         return token.trim();
     }
 
-    private Mono<Boolean> mapProbe(ClientResponse response) {
+    private Mono<String> mapProbe(ClientResponse response) {
         HttpStatusCode status = response.statusCode();
         if (status.value() == 401 || status.value() == 403) {
-            return response.releaseBody().thenReturn(false);
+            return response.releaseBody().thenReturn("invalid");
         }
         if (status.value() == 429 || status.is5xxServerError()) {
             return response.releaseBody().then(Mono.error(unavailable()));
@@ -85,20 +88,37 @@ public class BaiduPaddleTokenClient implements PaddleTokenClient {
                 .map(this::acceptedBody);
     }
 
-    private boolean acceptedBody(String body) {
+    private String acceptedBody(String body) {
         if (body == null || body.isBlank()) {
-            return true;
+            return "not-ocr";
         }
         try {
             JsonNode json = MAPPER.readTree(body);
+            if (!json.isObject()) {
+                return "not-ocr";
+            }
             JsonNode errorCode = json.get("errorCode");
             if (errorCode != null && errorCode.isNumber()) {
                 int code = errorCode.asInt();
-                return code != 401 && code != 403;
+                return code == 401 || code == 403 ? "invalid" : "valid";
             }
-            return true;
+            if (json.has("data") && json.get("data").isArray()) {
+                return "valid";
+            }
+            if (json.has("result") || json.has("ocrResults") || json.has("words_result")) {
+                return "valid";
+            }
+            JsonNode error = json.get("error");
+            if (error != null && error.isObject()) {
+                String code = error.path("code").asText("");
+                String message = error.path("message").asText("").toLowerCase();
+                if (code.contains("invalid") || message.contains("api key") || message.contains("token")) {
+                    return "invalid";
+                }
+            }
+            return "not-ocr";
         } catch (Exception exception) {
-            return true;
+            return "not-ocr";
         }
     }
 

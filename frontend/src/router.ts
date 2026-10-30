@@ -34,13 +34,13 @@ export const router = createRouter({
       component: AppShell,
       children: [{ path: '', component: LedgerView }],
     },
-    { path: '/', redirect: '/settings/ocr' },
+    { path: '/', redirect: '/review' },
   ],
 })
 
 router.beforeEach(async (to) => {
   const session = useSessionStore()
-  if (!session.ready) {
+  if (!session.user) {
     await session.restore()
   }
 
@@ -53,7 +53,7 @@ router.beforeEach(async (to) => {
     return '/login'
   }
   if ((to.path === '/login' || to.path === '/register') && session.user) {
-    return '/settings/ocr'
+    return '/review'
   }
   return true
 })

@@ -87,6 +87,7 @@ class AuthControllerTest {
                 .andExpect(cookie().httpOnly("access_token", true))
                 .andExpect(cookie().secure("access_token", false))
                 .andExpect(cookie().path("access_token", "/"))
+                .andExpect(cookie().maxAge("access_token", 604800))
                 .andExpect(header().string("Set-Cookie", containsString("SameSite=Lax")))
                 .andExpect(cookie().httpOnly("XSRF-TOKEN", false))
                 .andReturn();
